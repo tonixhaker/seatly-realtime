@@ -49,6 +49,23 @@ application, including `pnpm openapi`.
 | `REDIS_PORT` | yes | as above |
 | `RABBITMQ_URL` | yes | the readiness probe, and the consumer from milestone 05 |
 
+### With Docker
+
+```bash
+docker build -t seatly-realtime .
+docker run -d -p 3000:3000 \
+  -e INTERNAL_TOKEN=local-internal-token \
+  -e REDIS_HOST=host.docker.internal -e REDIS_PORT=6379 \
+  -e RABBITMQ_URL=amqp://seatly:seatly@host.docker.internal:5672 \
+  seatly-realtime
+```
+
+The image builds from this repository alone, runs Node 22 as the unprivileged `node` user,
+and carries no development dependency and no `.env` — every variable is supplied at run
+time. Its own `HEALTHCHECK` polls `/health/live`, so a container started without Redis or
+RabbitMQ still reports healthy; readiness is what `/health` answers. `docker stop` shuts
+the process down gracefully rather than waiting for the timeout.
+
 ### Tests
 
 `pnpm test` runs the unit specs. `pnpm test:e2e` needs a reachable Redis and RabbitMQ for
@@ -62,7 +79,8 @@ docker run -d -p 5672:5672 --user rabbitmq \
 
 ## Status
 
-Work in progress. Not runnable yet.
+Work in progress. The service builds, boots and answers its health routes; holds, the
+WebSocket gateway and the event consumer are not implemented yet.
 
 ## License
 

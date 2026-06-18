@@ -1,0 +1,149 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Lint, build, tests and contract
+    runs-on: ubuntu-24.04
+    services:
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      rabbitmq:
+        image: rabbitmq:3-management
+        ports:
+          - 5672:5672
+        env:
+          RABBITMQ_DEFAULT_USER: seatly
+          RABBITMQ_DEFAULT_PASS: seatly
+        options: >-
+          --user rabbitmq
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Set up Node 22
+        uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22.23.2
+
+      - name: Install pnpm
+        run: npm install -g pnpm@10.29.3
+
+      - name: Install dependencies from the lockfile
+        run: pnpm install --frozen-lockfile
+
+      - name: Create the environment file
+        run: cp .env.example .env
+
+      - name: Check style and lint without rewriting files
+        run: pnpm lint
+
+      - name: Compile TypeScript
+        run: pnpm build
+
+      - name: Run the unit specs
+        run: pnpm test
+
+      - name: Run the e2e suite against Redis and RabbitMQ
+        run: pnpm test:e2e
+
+      - name: Regenerate the OpenAPI contract
+        run: pnpm openapi
+
+      - name: Fail if the OpenAPI contract changed
+        run: git diff --exit-code docs/openapi.json
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4.2.2
+
+      - name: Build the image
+        run: docker build -t seatly-realtime:ci .
+
+      - name: Create the probe network
+        run: docker network create seatly-ci
+
+      - name: Start Redis with keyspace notifications
+        run: |
+          docker run -d --name seatly-redis-ci --network seatly-ci \
+            redis:7 redis-server --notify-keyspace-events Ex
+
+      - name: Start RabbitMQ
+        run: |
+          docker run -d --name seatly-rabbitmq-ci --network seatly-ci --user rabbitmq \
+            -e RABBITMQ_DEFAULT_USER=seatly -e RABBITMQ_DEFAULT_PASS=seatly \
+            rabbitmq:3-management
+
+      - name: Start the container
+        run: |
+          docker run -d --name seatly-realtime-ci --network seatly-ci -p 3000:3000 \
+            -e PORT=3000 -e INTERNAL_TOKEN=ci-internal-token \
+            -e REDIS_HOST=seatly-redis-ci -e REDIS_PORT=6379 \
+            -e RABBITMQ_URL=amqp://seatly:seatly@seatly-rabbitmq-ci:5672 \
+            seatly-realtime:ci
+
+      - name: Probe liveness
+        run: curl --retry 20 --retry-delay 2 --retry-all-errors -fsS http://localhost:3000/health/live
+
+      - name: Probe readiness and require both dependencies
+        run: |
+          body=$(curl --retry 20 --retry-delay 2 --retry-all-errors -fsS http://localhost:3000/health)
+          echo "$body"
+          echo "$body" | grep -q '"redis":"ok"'
+          echo "$body" | grep -q '"rabbitmq":"ok"'
+
+      - name: Require the image healthcheck to report healthy
+        run: |
+          for i in $(seq 1 20); do
+            health=$(docker inspect -f '{{.State.Health.Status}}' seatly-realtime-ci)
+            if [ "$health" != "starting" ]; then break; fi
+            sleep 3
+          done
+          echo "healthcheck reported $health"
+          test "$health" = "healthy"
+
+      - name: Require the container to run as a non-root user
+        run: test "$(docker exec seatly-realtime-ci id -un)" = "node"
+
+      - name: Require no development dependency in the image
+        run: |
+          docker exec seatly-realtime-ci sh -c \
+            'test ! -d node_modules/typescript && test ! -d node_modules/jest && test ! -d node_modules/@nestjs/cli'
+
+      - name: Require no environment file in the image
+        run: |
+          ! docker exec seatly-realtime-ci sh -c 'ls -a /app | grep -q "^\.env"'
+
+      - name: Require a graceful shutdown rather than a timeout kill
+        run: |
+          started=$SECONDS
+          docker stop -t 30 seatly-realtime-ci
+          elapsed=$((SECONDS - started))
+          echo "shutdown took ${elapsed}s"
+          test "$(docker inspect -f '{{.State.ExitCode}}' seatly-realtime-ci)" = "0"
+          test "$elapsed" -lt 10
+
+      - name: Stop the containers
+        if: always()
+        run: docker rm -f seatly-realtime-ci seatly-redis-ci seatly-rabbitmq-ci
