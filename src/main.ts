@@ -18,6 +18,7 @@ async function bootstrap() {
   );
   app.useGlobalFilters(new HttpExceptionFilter());
   SwaggerModule.setup('docs', app, buildOpenApiDocument(app));
+  app.enableShutdownHooks([], { useProcessExit: true });
   await app.listen(app.get(ConfigService<EnvConfig, true>).get('PORT'));
 }
 void bootstrap();
