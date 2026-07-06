@@ -1,0 +1,152 @@
+import { Injectable } from '@nestjs/common';
+import Redis from 'ioredis';
+import { HOLD_TTL_SECONDS, holdKey, sessionKey } from '../redis/keys';
+
+export interface HoldPayload {
+  sessionId: string;
+  userId?: number;
+  heldAt: string;
+}
+
+export interface AcquireInput {
+  eventId: number;
+  seatIds: number[];
+  sessionId: string;
+  userId?: number;
+}
+
+export type AcquireOutcome =
+  | { ok: true; acquired: number[]; retained: number[] }
+  | { ok: false; conflicts: number[] };
+
+export interface ReleaseInput {
+  eventId: number;
+  seatIds: number[];
+  sessionId: string;
+}
+
+const ACQUIRE_SCRIPT = `
+local n = #KEYS - 1
+local sessionKey = KEYS[n + 1]
+local codes = ''
+local conflicted = false
+for i = 1, n do
+  if redis.call('SET', KEYS[i], ARGV[2], 'NX', 'EX', ARGV[3]) then
+    codes = codes .. 'T'
+  else
+    local current = redis.call('GET', KEYS[i])
+    if current and string.match(current, '"sessionId":"([^"]*)"') == ARGV[1] then
+      codes = codes .. 'R'
+    else
+      codes = codes .. 'C'
+      conflicted = true
+    end
+  end
+end
+if conflicted then
+  for i = 1, n do
+    if string.sub(codes, i, i) == 'T' then
+      redis.call('DEL', KEYS[i])
+    end
+  end
+  return codes
+end
+for i = 1, n do
+  redis.call('SADD', sessionKey, ARGV[3 + i])
+end
+redis.call('EXPIRE', sessionKey, ARGV[3])
+return codes
+`;
+
+const RELEASE_SCRIPT = `
+local n = #KEYS - 1
+local sessionKey = KEYS[n + 1]
+local codes = ''
+for i = 1, n do
+  local current = redis.call('GET', KEYS[i])
+  redis.call('SREM', sessionKey, ARGV[1 + i])
+  if current and string.match(current, '"sessionId":"([^"]*)"') == ARGV[1] then
+    redis.call('DEL', KEYS[i])
+    codes = codes .. 'D'
+  else
+    codes = codes .. 'K'
+  end
+end
+return codes
+`;
+
+@Injectable()
+export class HoldStoreService {
+  constructor(private readonly redis: Redis) {}
+
+  async acquire(input: AcquireInput): Promise<AcquireOutcome> {
+    const { eventId, seatIds, sessionId, userId } = input;
+    const payload: HoldPayload = {
+      sessionId,
+      userId,
+      heldAt: new Date().toISOString(),
+    };
+
+    const codes = await this.run(ACQUIRE_SCRIPT, eventId, seatIds, sessionId, [
+      JSON.stringify(payload),
+      String(HOLD_TTL_SECONDS),
+      ...seatIds.map(String),
+    ]);
+
+    if (codes.includes('C')) {
+      return {
+        ok: false,
+        conflicts: seatIds.filter((_, i) => codes[i] === 'C'),
+      };
+    }
+
+    return {
+      ok: true,
+      acquired: seatIds.filter((_, i) => codes[i] === 'T'),
+      retained: seatIds.filter((_, i) => codes[i] === 'R'),
+    };
+  }
+
+  async release(input: ReleaseInput): Promise<number[]> {
+    const { eventId, seatIds, sessionId } = input;
+
+    const codes = await this.run(
+      RELEASE_SCRIPT,
+      eventId,
+      seatIds,
+      sessionId,
+      seatIds.map(String),
+    );
+
+    return seatIds.filter((_, i) => codes[i] === 'D');
+  }
+
+  private async run(
+    script: string,
+    eventId: number,
+    seatIds: number[],
+    sessionId: string,
+    tail: string[],
+  ): Promise<string> {
+    const keys = [
+      ...seatIds.map((seatId) => holdKey(eventId, seatId)),
+      sessionKey(sessionId),
+    ];
+
+    const codes: unknown = await this.redis.eval(
+      script,
+      keys.length,
+      ...keys,
+      sessionId,
+      ...tail,
+    );
+
+    if (typeof codes !== 'string' || codes.length !== seatIds.length) {
+      throw new Error(
+        `Hold script returned an unusable result for ${String(seatIds.length)} seats.`,
+      );
+    }
+
+    return codes;
+  }
+}
