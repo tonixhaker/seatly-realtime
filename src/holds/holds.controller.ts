@@ -31,15 +31,15 @@ export class HoldsController {
 
   @ApiCreateHold()
   @Post('holds')
-  create(@Body() dto: HoldSeatsDto): void {
-    this.holds.hold(dto);
+  async create(@Body() dto: HoldSeatsDto): Promise<void> {
+    await this.holds.hold(dto);
   }
 
   @ApiReleaseHold()
   @HttpCode(HttpStatus.NO_CONTENT)
   @Delete('holds')
-  release(@Body() dto: HoldSeatsDto): void {
-    this.holds.release(dto);
+  async release(@Body() dto: HoldSeatsDto): Promise<void> {
+    await this.holds.release(dto);
   }
 
   @ApiLiveSeats()
@@ -51,7 +51,7 @@ export class HoldsController {
   @ApiValidateHolds()
   @UseGuards(InternalTokenGuard)
   @Get('internal/holds/validate')
-  validate(@Query() query: ValidateHoldsQueryDto): ValidateHoldsDto {
+  validate(@Query() query: ValidateHoldsQueryDto): Promise<ValidateHoldsDto> {
     return this.holds.validate(query);
   }
 }

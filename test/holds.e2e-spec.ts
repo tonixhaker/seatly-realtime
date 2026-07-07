@@ -4,6 +4,8 @@ import request, { Response } from 'supertest';
 import { App } from 'supertest/types';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
+import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
 import { buildOpenApiDocument } from '../src/swagger';
@@ -13,8 +15,11 @@ const INTERNAL_TOKEN = 'e2e-internal-token';
 const INTERNAL_HEADER = 'X-Internal-Token';
 const SOLD_SEAT_IDS = [3, 7, 11];
 const HELD_SEAT_IDS = [5, 9];
+const BASE_EVENT_ID = 700000 + Math.floor(Math.random() * 90000);
 
 const anyString = expect.any(String) as string;
+
+const byId = (a: number, b: number): number => a - b;
 
 const seenBodies: unknown[] = [];
 
@@ -40,9 +45,30 @@ const containsKey = (value: unknown, key: string): boolean => {
 
 describe('Holds REST surface (e2e)', () => {
   let app: INestApplication<App>;
+  let redis: Redis;
+  let eventId: number;
+  let mine: string;
+  let theirs: string;
+  let nextEventId = BASE_EVENT_ID;
   const originalToken = process.env.INTERNAL_TOKEN;
 
   const http = (): App => app.getHttpServer();
+
+  const holdKeys = async (): Promise<string[]> =>
+    (await redis.keys(`hold:${eventId}:*`)).sort();
+
+  const ownerOf = async (seatId: number): Promise<string | undefined> => {
+    const raw = await redis.get(`hold:${eventId}:${seatId}`);
+    return raw === null
+      ? undefined
+      : (JSON.parse(raw) as { sessionId: string }).sessionId;
+  };
+
+  const hold = (seatIds: number[], sessionId: string) =>
+    request(http())
+      .post('/holds')
+      .send({ event_id: eventId, seat_ids: seatIds, session_id: sessionId })
+      .expect(201);
 
   beforeAll(async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
@@ -59,14 +85,28 @@ describe('Holds REST surface (e2e)', () => {
     );
     app.useGlobalFilters(new HttpExceptionFilter());
     await app.init();
+
+    redis = new Redis({
+      host: process.env.REDIS_HOST,
+      port: Number(process.env.REDIS_PORT),
+    });
   });
 
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.INTERNAL_TOKEN = INTERNAL_TOKEN;
+    eventId = ++nextEventId;
+    mine = randomUUID();
+    theirs = randomUUID();
+  });
+
+  afterEach(async () => {
+    const keys = await redis.keys(`hold:${eventId}:*`);
+    await redis.del(...keys, `session:${mine}`, `session:${theirs}`);
   });
 
   afterAll(async () => {
+    await redis.quit();
     if (originalToken === undefined) {
       delete process.env.INTERNAL_TOKEN;
     } else {
@@ -151,8 +191,10 @@ describe('Holds REST surface (e2e)', () => {
         .set(INTERNAL_HEADER, INTERNAL_TOKEN);
 
     it('reports the session as valid when it holds every requested seat', async () => {
+      await hold([1, 2], mine);
+
       const response = await authorized(
-        `event_id=1&seat_ids=1&seat_ids=2&session_id=${SESSION_ID}`,
+        `event_id=${eventId}&seat_ids=1&seat_ids=2&session_id=${mine}`,
       ).expect(200);
 
       expect(bodyOf(response)).toEqual({ valid: true, missing: [] });
@@ -160,34 +202,82 @@ describe('Holds REST surface (e2e)', () => {
 
     it('accepts a single seat_ids value as a one-element array', async () => {
       const response = await authorized(
-        `event_id=1&seat_ids=7&session_id=${SESSION_ID}`,
+        `event_id=${eventId}&seat_ids=7&session_id=${mine}`,
       ).expect(200);
 
       expect(bodyOf(response)).toEqual({ valid: false, missing: [7] });
     });
 
     it('accepts a single seat_ids value the session does hold', async () => {
+      await hold([1], mine);
+
       const response = await authorized(
-        `event_id=1&seat_ids=1&session_id=${SESSION_ID}`,
+        `event_id=${eventId}&seat_ids=1&session_id=${mine}`,
       ).expect(200);
 
       expect(bodyOf(response)).toEqual({ valid: true, missing: [] });
     });
 
     it('accepts the repeated seat_ids form as a multi-element array', async () => {
+      await hold([4], mine);
+
       const response = await authorized(
-        `event_id=1&seat_ids=3&seat_ids=4&session_id=${SESSION_ID}`,
+        `event_id=${eventId}&seat_ids=3&seat_ids=4&session_id=${mine}`,
       ).expect(200);
 
       expect(bodyOf(response)).toEqual({ valid: false, missing: [3] });
     });
 
     it('lists only the seats the session does not hold in missing', async () => {
+      await hold([1], mine);
+
       const response = await authorized(
-        `event_id=1&seat_ids=1&seat_ids=3&seat_ids=7&session_id=${SESSION_ID}`,
+        `event_id=${eventId}&seat_ids=1&seat_ids=3&seat_ids=7&session_id=${mine}`,
       ).expect(200);
 
       expect(bodyOf(response)).toEqual({ valid: false, missing: [3, 7] });
+    });
+
+    it('calls a seat held by another session missing rather than valid', async () => {
+      await hold([1, 2], theirs);
+
+      const response = await authorized(
+        `event_id=${eventId}&seat_ids=1&seat_ids=2&session_id=${mine}`,
+      ).expect(200);
+
+      expect(bodyOf(response)).toEqual({ valid: false, missing: [1, 2] });
+    });
+
+    it('does not carry a hold at one event over to another event', async () => {
+      await hold([1], mine);
+      const otherEvent = eventId + 500000;
+
+      const response = await authorized(
+        `event_id=${otherEvent}&seat_ids=1&session_id=${mine}`,
+      ).expect(200);
+
+      expect(bodyOf(response)).toEqual({ valid: false, missing: [1] });
+    });
+
+    it('reports a seat whose hold key has gone as missing', async () => {
+      await hold([1, 2], mine);
+      await redis.del(`hold:${eventId}:1`);
+
+      const response = await authorized(
+        `event_id=${eventId}&seat_ids=1&seat_ids=2&session_id=${mine}`,
+      ).expect(200);
+
+      expect(bodyOf(response)).toEqual({ valid: false, missing: [1] });
+    });
+
+    it('lists missing seats in request order rather than sorted', async () => {
+      await hold([2], mine);
+
+      const response = await authorized(
+        `event_id=${eventId}&seat_ids=9&seat_ids=2&seat_ids=4&session_id=${mine}`,
+      ).expect(200);
+
+      expect(bodyOf(response)).toEqual({ valid: false, missing: [9, 4] });
     });
 
     it('rejects a query missing seat_ids with 400', async () => {
@@ -233,22 +323,38 @@ describe('Holds REST surface (e2e)', () => {
 
   describe('POST /holds', () => {
     const body = (overrides: Record<string, unknown> = {}) => ({
-      event_id: 1,
+      event_id: eventId,
       seat_ids: [1, 2],
-      session_id: SESSION_ID,
+      session_id: mine,
       ...overrides,
     });
 
     it('acquires free seats and returns 201 with an empty body', async () => {
       const response = await request(http())
         .post('/holds')
-        .send(body())
+        .send(body({ seat_ids: [1, 2, 4] }))
         .expect(201);
 
       expect(response.text).toBe('');
+      expect(await holdKeys()).toEqual([
+        `hold:${eventId}:1`,
+        `hold:${eventId}:2`,
+        `hold:${eventId}:4`,
+      ]);
+      expect(await ownerOf(1)).toBe(mine);
+      expect(await ownerOf(4)).toBe(mine);
+      expect((await redis.smembers(`session:${mine}`)).sort()).toEqual([
+        '1',
+        '2',
+        '4',
+      ]);
+      expect(await redis.ttl(`hold:${eventId}:1`)).toBeGreaterThanOrEqual(599);
+      expect(await redis.ttl(`hold:${eventId}:1`)).toBeLessThanOrEqual(600);
     });
 
     it('returns 409 SEATS_CONFLICT listing only the conflicting seats', async () => {
+      await hold([3, 7], theirs);
+
       const response = await request(http())
         .post('/holds')
         .send(body({ seat_ids: [1, 3, 7] }))
@@ -263,7 +369,44 @@ describe('Holds REST surface (e2e)', () => {
       });
     });
 
+    it('leaves the loser its own non-overlapping seats unheld and the winner untouched', async () => {
+      await hold([3, 7], theirs);
+
+      await request(http())
+        .post('/holds')
+        .send(body({ seat_ids: [1, 3, 5, 7, 9] }))
+        .expect(409);
+
+      expect(await holdKeys()).toEqual([
+        `hold:${eventId}:3`,
+        `hold:${eventId}:7`,
+      ]);
+      expect(await ownerOf(3)).toBe(theirs);
+      expect(await ownerOf(7)).toBe(theirs);
+      expect(await redis.exists(`session:${mine}`)).toBe(0);
+      expect((await redis.smembers(`session:${theirs}`)).sort()).toEqual([
+        '3',
+        '7',
+      ]);
+    });
+
+    it('names the conflicting seats in request order rather than sorted', async () => {
+      await hold([2, 8], theirs);
+
+      const response = await request(http())
+        .post('/holds')
+        .send(body({ seat_ids: [8, 5, 2] }))
+        .expect(409);
+
+      expect(bodyOf(response)).toHaveProperty(
+        'error.details.conflicting_seat_ids',
+        [8, 2],
+      );
+    });
+
     it('names the conflict detail key conflicting_seat_ids', async () => {
+      await hold([11], theirs);
+
       const response = await request(http())
         .post('/holds')
         .send(body({ seat_ids: [11] }))
@@ -273,6 +416,58 @@ describe('Holds REST surface (e2e)', () => {
         'error.details.conflicting_seat_ids',
         [11],
       );
+    });
+
+    it('answers 201 when the same session re-posts seats it already holds', async () => {
+      await hold([1, 2], mine);
+      const heldAt = await redis.get(`hold:${eventId}:1`);
+
+      await request(http())
+        .post('/holds')
+        .send(body({ seat_ids: [1, 2, 3] }))
+        .expect(201);
+
+      expect(await redis.get(`hold:${eventId}:1`)).toBe(heldAt);
+      expect((await redis.smembers(`session:${mine}`)).sort()).toEqual([
+        '1',
+        '2',
+        '3',
+      ]);
+    });
+
+    it('holds a request of exactly the maximum allowed seat count and validates it', async () => {
+      const seatIds = Array.from({ length: 50 }, (_, i) => i + 1);
+
+      await request(http())
+        .post('/holds')
+        .send(body({ seat_ids: seatIds }))
+        .expect(201);
+
+      expect(await holdKeys()).toHaveLength(50);
+      expect(
+        (await redis.smembers(`session:${mine}`)).map(Number).sort(byId),
+      ).toEqual(seatIds);
+
+      const response = await request(http())
+        .get('/internal/holds/validate')
+        .query({ event_id: eventId, seat_ids: seatIds, session_id: mine })
+        .set(INTERNAL_HEADER, INTERNAL_TOKEN)
+        .expect(200);
+
+      expect(bodyOf(response)).toEqual({ valid: true, missing: [] });
+    });
+
+    it('writes nothing when seat_ids exceeds the allowed maximum', async () => {
+      const response = await request(http())
+        .post('/holds')
+        .send(body({ seat_ids: Array.from({ length: 51 }, (_, i) => i + 1) }))
+        .expect(400);
+
+      expect(bodyOf(response)).toMatchObject({
+        error: { code: 'VALIDATION_FAILED' },
+      });
+      expect(await holdKeys()).toEqual([]);
+      expect(await redis.exists(`session:${mine}`)).toBe(0);
     });
 
     it('rejects an unknown property in the body with 400', async () => {
@@ -344,45 +539,77 @@ describe('Holds REST surface (e2e)', () => {
 
   describe('DELETE /holds', () => {
     it('releases the session own seats and returns 204 with no body', async () => {
+      await hold([1, 2, 4], mine);
+
       const response = await request(http())
         .delete('/holds')
-        .send({ event_id: 1, seat_ids: [1, 2], session_id: SESSION_ID })
+        .send({ event_id: eventId, seat_ids: [1, 2], session_id: mine })
         .expect(204);
 
       expect(response.text).toBe('');
+      expect(await holdKeys()).toEqual([`hold:${eventId}:4`]);
+      expect(await redis.smembers(`session:${mine}`)).toEqual(['4']);
+    });
+
+    it('drops the session entry once its last seat is released', async () => {
+      await hold([1, 2], mine);
+
+      await request(http())
+        .delete('/holds')
+        .send({ event_id: eventId, seat_ids: [1, 2], session_id: mine })
+        .expect(204);
+
+      expect(await holdKeys()).toEqual([]);
+      expect(await redis.exists(`session:${mine}`)).toBe(0);
     });
 
     it('returns 204 for seats the session does not own rather than an error', async () => {
+      await hold([1, 2], theirs);
+      const payload = await redis.get(`hold:${eventId}:1`);
+      const ttl = await redis.ttl(`hold:${eventId}:1`);
+
       const response = await request(http())
         .delete('/holds')
-        .send({
-          event_id: 1,
-          seat_ids: SOLD_SEAT_IDS,
-          session_id: '11111111-2222-4333-8444-555555555555',
-        })
+        .send({ event_id: eventId, seat_ids: [1, 2], session_id: mine })
         .expect(204);
 
       expect(response.text).toBe('');
+      expect(await holdKeys()).toEqual([
+        `hold:${eventId}:1`,
+        `hold:${eventId}:2`,
+      ]);
+      expect(await redis.get(`hold:${eventId}:1`)).toBe(payload);
+      expect(await redis.ttl(`hold:${eventId}:1`)).toBeGreaterThanOrEqual(
+        ttl - 1,
+      );
+      expect((await redis.smembers(`session:${theirs}`)).sort()).toEqual([
+        '1',
+        '2',
+      ]);
     });
 
     it('returns 204 when the same release is repeated', async () => {
+      await hold([1], mine);
       const payload = {
-        event_id: 1,
+        event_id: eventId,
         seat_ids: [1],
-        session_id: SESSION_ID,
+        session_id: mine,
       };
 
       await request(http()).delete('/holds').send(payload).expect(204);
+      expect(await holdKeys()).toEqual([]);
+
       await request(http()).delete('/holds').send(payload).expect(204);
+      expect(await holdKeys()).toEqual([]);
     });
 
     it('rejects an unknown property in the body with 400', async () => {
       const response = await request(http())
         .delete('/holds')
         .send({
-          event_id: 1,
+          event_id: eventId,
           seat_ids: [1],
-          session_id: SESSION_ID,
+          session_id: mine,
           force: true,
         })
         .expect(400);

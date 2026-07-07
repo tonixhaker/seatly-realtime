@@ -202,6 +202,87 @@ describe('HoldStoreService', () => {
     expect(await keyCount()).toBe(0);
   });
 
+  it('reports nothing missing when the session holds every requested seat', async () => {
+    await store.acquire({
+      eventId: EVENT,
+      seatIds: [1, 2],
+      sessionId: SESSION,
+    });
+
+    expect(
+      await store.missing({
+        eventId: EVENT,
+        seatIds: [1, 2],
+        sessionId: SESSION,
+      }),
+    ).toEqual([]);
+  });
+
+  it('reports a seat held by another session as missing', async () => {
+    await store.acquire({ eventId: EVENT, seatIds: [1, 2], sessionId: OTHER });
+
+    expect(
+      await store.missing({
+        eventId: EVENT,
+        seatIds: [1, 2],
+        sessionId: SESSION,
+      }),
+    ).toEqual([1, 2]);
+  });
+
+  it('reports a seat with no hold key as missing', async () => {
+    await store.acquire({ eventId: EVENT, seatIds: [1], sessionId: SESSION });
+
+    expect(
+      await store.missing({
+        eventId: EVENT,
+        seatIds: [1, 9],
+        sessionId: SESSION,
+      }),
+    ).toEqual([9]);
+  });
+
+  it('does not carry a hold at one event over to another event', async () => {
+    await store.acquire({ eventId: EVENT, seatIds: [1], sessionId: SESSION });
+
+    expect(
+      await store.missing({
+        eventId: EVENT + 1,
+        seatIds: [1],
+        sessionId: SESSION,
+      }),
+    ).toEqual([1]);
+  });
+
+  it('reports a seat whose hold key has expired as missing', async () => {
+    await store.acquire({
+      eventId: EVENT,
+      seatIds: [1, 2],
+      sessionId: SESSION,
+    });
+    await redis.del(`hold:${EVENT}:1`);
+
+    expect(
+      await store.missing({
+        eventId: EVENT,
+        seatIds: [1, 2],
+        sessionId: SESSION,
+      }),
+    ).toEqual([1]);
+  });
+
+  it('reports missing seats in request order rather than sorted', async () => {
+    await store.acquire({ eventId: EVENT, seatIds: [2], sessionId: SESSION });
+
+    expect(
+      await store.missing({
+        eventId: EVENT,
+        seatIds: [9, 2, 4],
+        sessionId: SESSION,
+      }),
+    ).toEqual([9, 4]);
+  });
+
   it('rejects a script result that does not cover every requested seat', async () => {
     const stub = {
       eval: () => Promise.resolve('TT'),

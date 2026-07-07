@@ -25,6 +25,8 @@ export interface ReleaseInput {
   sessionId: string;
 }
 
+const OWNER_PATTERN = /"sessionId":"([^"]*)"/;
+
 const ACQUIRE_SCRIPT = `
 local n = #KEYS - 1
 local sessionKey = KEYS[n + 1]
@@ -119,6 +121,19 @@ export class HoldStoreService {
     );
 
     return seatIds.filter((_, i) => codes[i] === 'D');
+  }
+
+  async missing(input: ReleaseInput): Promise<number[]> {
+    const { eventId, seatIds, sessionId } = input;
+
+    const payloads = await this.redis.mget(
+      ...seatIds.map((seatId) => holdKey(eventId, seatId)),
+    );
+
+    return seatIds.filter((_, i) => {
+      const payload = payloads[i];
+      return payload === null || OWNER_PATTERN.exec(payload)?.[1] !== sessionId;
+    });
   }
 
   private async run(
