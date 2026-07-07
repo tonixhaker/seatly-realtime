@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { HoldStoreService } from '../src/holds/hold-store.service';
+import { sessionMember } from '../src/redis/keys';
 
 const BASE_EVENT_ID = 900000 + Math.floor(Math.random() * 90000);
 
@@ -27,7 +28,10 @@ describe('hold store against a real Redis', () => {
   });
 
   afterEach(async () => {
-    const keys = await redis.keys(`hold:${eventId}:*`);
+    const keys = [
+      ...(await redis.keys(`hold:${eventId}:*`)),
+      ...(await redis.keys(`expiry:*:${eventId}:*`)),
+    ];
     await redis.del(...keys, `session:${mine}`, `session:${theirs}`);
   });
 
@@ -38,6 +42,7 @@ describe('hold store against a real Redis', () => {
   const snapshot = async (): Promise<string[]> =>
     [
       ...(await redis.keys(`hold:${eventId}:*`)),
+      ...(await redis.keys(`expiry:*:${eventId}:*`)),
       ...(await redis.keys(`session:${mine}`)),
       ...(await redis.keys(`session:${theirs}`)),
     ].sort();
@@ -52,12 +57,9 @@ describe('hold store against a real Redis', () => {
     expect(outcome).toEqual({ ok: true, acquired: [1, 2, 3, 4], retained: [] });
     expect(await redis.keys(`hold:${eventId}:*`)).toHaveLength(4);
     expect(await redis.exists(`session:${mine}`)).toBe(1);
-    expect((await redis.smembers(`session:${mine}`)).sort()).toEqual([
-      '1',
-      '2',
-      '3',
-      '4',
-    ]);
+    expect((await redis.smembers(`session:${mine}`)).sort()).toEqual(
+      [1, 2, 3, 4].map((seatId) => sessionMember(eventId, seatId)),
+    );
   });
 
   it('leaves zero new keys behind when one seat is held by another session', async () => {
@@ -113,10 +115,9 @@ describe('hold store against a real Redis', () => {
     expect(await redis.mget(`hold:${eventId}:1`, `hold:${eventId}:2`)).toEqual(
       held,
     );
-    expect((await redis.smembers(`session:${mine}`)).sort()).toEqual([
-      '1',
-      '2',
-    ]);
+    expect((await redis.smembers(`session:${mine}`)).sort()).toEqual(
+      [1, 2].map((seatId) => sessionMember(eventId, seatId)),
+    );
   });
 
   it('changes nothing when releasing seats held by a different session', async () => {
@@ -137,10 +138,9 @@ describe('hold store against a real Redis', () => {
     expect(await redis.ttl(`hold:${eventId}:1`)).toBeGreaterThanOrEqual(
       ttl - 1,
     );
-    expect((await redis.smembers(`session:${theirs}`)).sort()).toEqual([
-      '1',
-      '2',
-    ]);
+    expect((await redis.smembers(`session:${theirs}`)).sort()).toEqual(
+      [1, 2].map((seatId) => sessionMember(eventId, seatId)),
+    );
   });
 
   it('drops a session member whose hold key has already expired', async () => {
@@ -150,7 +150,9 @@ describe('hold store against a real Redis', () => {
     expect(
       await store.release({ eventId, seatIds: [1], sessionId: mine }),
     ).toEqual([]);
-    expect(await redis.smembers(`session:${mine}`)).toEqual(['2']);
+    expect(await redis.smembers(`session:${mine}`)).toEqual([
+      sessionMember(eventId, 2),
+    ]);
   });
 
   it('drops the session entry once its last seat is released', async () => {
@@ -159,7 +161,9 @@ describe('hold store against a real Redis', () => {
     expect(
       await store.release({ eventId, seatIds: [1], sessionId: mine }),
     ).toEqual([1]);
-    expect(await redis.smembers(`session:${mine}`)).toEqual(['2']);
+    expect(await redis.smembers(`session:${mine}`)).toEqual([
+      sessionMember(eventId, 2),
+    ]);
 
     expect(
       await store.release({ eventId, seatIds: [2], sessionId: mine }),

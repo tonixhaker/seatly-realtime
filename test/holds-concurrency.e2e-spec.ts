@@ -2,6 +2,7 @@ import { ChildProcess, fork } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import Redis from 'ioredis';
+import { sessionMember } from '../src/redis/keys';
 import { AcquireOutcome } from '../src/holds/hold-store.service';
 
 const ROUNDS = 20;
@@ -164,12 +165,19 @@ describe('concurrent acquisition of overlapping seat sets', () => {
 
       expect(
         (await redis.smembers(`session:${sessions[winnerIndex]}`)).sort(),
-      ).toEqual(SEAT_IDS.map(String));
+      ).toEqual(
+        SEAT_IDS.map((seatId) => sessionMember(eventId, seatId)).sort(),
+      );
       expect(await redis.exists(`session:${sessions[1 - winnerIndex]}`)).toBe(
         0,
       );
 
-      await redis.del(...heldKeys, `session:${sessions[winnerIndex]}`);
+      const companionKeys = await redis.keys(`expiry:*:${String(eventId)}:*`);
+      await redis.del(
+        ...heldKeys,
+        ...companionKeys,
+        `session:${sessions[winnerIndex]}`,
+      );
     }
 
     expect(winners).toBe(ROUNDS);

@@ -5,6 +5,7 @@ import { App } from 'supertest/types';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { sessionMember } from '../src/redis/keys';
 import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
@@ -18,8 +19,6 @@ const HELD_SEAT_IDS = [5, 9];
 const BASE_EVENT_ID = 700000 + Math.floor(Math.random() * 90000);
 
 const anyString = expect.any(String) as string;
-
-const byId = (a: number, b: number): number => a - b;
 
 const seenBodies: unknown[] = [];
 
@@ -101,7 +100,10 @@ describe('Holds REST surface (e2e)', () => {
   });
 
   afterEach(async () => {
-    const keys = await redis.keys(`hold:${eventId}:*`);
+    const keys = [
+      ...(await redis.keys(`hold:${eventId}:*`)),
+      ...(await redis.keys(`expiry:*:${eventId}:*`)),
+    ];
     await redis.del(...keys, `session:${mine}`, `session:${theirs}`);
   });
 
@@ -343,11 +345,9 @@ describe('Holds REST surface (e2e)', () => {
       ]);
       expect(await ownerOf(1)).toBe(mine);
       expect(await ownerOf(4)).toBe(mine);
-      expect((await redis.smembers(`session:${mine}`)).sort()).toEqual([
-        '1',
-        '2',
-        '4',
-      ]);
+      expect((await redis.smembers(`session:${mine}`)).sort()).toEqual(
+        [1, 2, 4].map((seatId) => sessionMember(eventId, seatId)),
+      );
       expect(await redis.ttl(`hold:${eventId}:1`)).toBeGreaterThanOrEqual(599);
       expect(await redis.ttl(`hold:${eventId}:1`)).toBeLessThanOrEqual(600);
     });
@@ -384,10 +384,9 @@ describe('Holds REST surface (e2e)', () => {
       expect(await ownerOf(3)).toBe(theirs);
       expect(await ownerOf(7)).toBe(theirs);
       expect(await redis.exists(`session:${mine}`)).toBe(0);
-      expect((await redis.smembers(`session:${theirs}`)).sort()).toEqual([
-        '3',
-        '7',
-      ]);
+      expect((await redis.smembers(`session:${theirs}`)).sort()).toEqual(
+        [3, 7].map((seatId) => sessionMember(eventId, seatId)),
+      );
     });
 
     it('names the conflicting seats in request order rather than sorted', async () => {
@@ -428,11 +427,9 @@ describe('Holds REST surface (e2e)', () => {
         .expect(201);
 
       expect(await redis.get(`hold:${eventId}:1`)).toBe(heldAt);
-      expect((await redis.smembers(`session:${mine}`)).sort()).toEqual([
-        '1',
-        '2',
-        '3',
-      ]);
+      expect((await redis.smembers(`session:${mine}`)).sort()).toEqual(
+        [1, 2, 3].map((seatId) => sessionMember(eventId, seatId)),
+      );
     });
 
     it('holds a request of exactly the maximum allowed seat count and validates it', async () => {
@@ -444,9 +441,9 @@ describe('Holds REST surface (e2e)', () => {
         .expect(201);
 
       expect(await holdKeys()).toHaveLength(50);
-      expect(
-        (await redis.smembers(`session:${mine}`)).map(Number).sort(byId),
-      ).toEqual(seatIds);
+      expect((await redis.smembers(`session:${mine}`)).sort()).toEqual(
+        seatIds.map((seatId) => sessionMember(eventId, seatId)).sort(),
+      );
 
       const response = await request(http())
         .get('/internal/holds/validate')
@@ -548,7 +545,9 @@ describe('Holds REST surface (e2e)', () => {
 
       expect(response.text).toBe('');
       expect(await holdKeys()).toEqual([`hold:${eventId}:4`]);
-      expect(await redis.smembers(`session:${mine}`)).toEqual(['4']);
+      expect(await redis.smembers(`session:${mine}`)).toEqual([
+        sessionMember(eventId, 4),
+      ]);
     });
 
     it('drops the session entry once its last seat is released', async () => {
@@ -582,10 +581,9 @@ describe('Holds REST surface (e2e)', () => {
       expect(await redis.ttl(`hold:${eventId}:1`)).toBeGreaterThanOrEqual(
         ttl - 1,
       );
-      expect((await redis.smembers(`session:${theirs}`)).sort()).toEqual([
-        '1',
-        '2',
-      ]);
+      expect((await redis.smembers(`session:${theirs}`)).sort()).toEqual(
+        [1, 2].map((seatId) => sessionMember(eventId, seatId)),
+      );
     });
 
     it('returns 204 when the same release is repeated', async () => {
