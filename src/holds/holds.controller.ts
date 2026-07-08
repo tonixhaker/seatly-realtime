@@ -44,7 +44,7 @@ export class HoldsController {
 
   @ApiLiveSeats()
   @Get('events/:id/live-seats')
-  liveSeats(@Param() params: LiveSeatsParamsDto): LiveSeatsDto {
+  liveSeats(@Param() params: LiveSeatsParamsDto): Promise<LiveSeatsDto> {
     return this.holds.liveSeats(params.id);
   }
 

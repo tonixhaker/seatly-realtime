@@ -7,6 +7,7 @@ const VALID_ENV = {
   REDIS_HOST: '127.0.0.1',
   REDIS_PORT: '6379',
   RABBITMQ_URL: 'amqp://seatly:seatly@127.0.0.1:5672',
+  CORE_API_URL: 'http://127.0.0.1:8000',
 };
 
 const startAppModule = async (): Promise<string> => {
@@ -58,6 +59,12 @@ describe('AppModule environment validation', () => {
     process.env.RABBITMQ_URL = '';
 
     await expect(startAppModule()).resolves.toContain('RABBITMQ_URL');
+  });
+
+  it('refuses to start with a CORE_API_URL that is not a url, naming the variable', async () => {
+    process.env.CORE_API_URL = 'api:8000';
+
+    await expect(startAppModule()).resolves.toContain('CORE_API_URL');
   });
 
   it('refuses to start with an empty REDIS_HOST, naming validation as the reason', async () => {

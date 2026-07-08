@@ -117,6 +117,16 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "SOLD_STATE_UNAVAILABLE — the sold cache is cold and seatly-api is unreachable, so the sold set is unknown rather than empty.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
           }
         },
         "summary": "Read the live held and sold seats of an event",

@@ -18,6 +18,7 @@ const liveEnv = (): Record<string, string> => ({
   REDIS_HOST: process.env.REDIS_HOST as string,
   REDIS_PORT: process.env.REDIS_PORT as string,
   RABBITMQ_URL: process.env.RABBITMQ_URL as string,
+  CORE_API_URL: process.env.CORE_API_URL as string,
 });
 
 const landmine = {

@@ -8,6 +8,7 @@ export const envSchema = z.object({
   REDIS_HOST: z.string().min(1),
   REDIS_PORT: port(),
   RABBITMQ_URL: z.string().min(1),
+  CORE_API_URL: z.url({ protocol: /^https?$/ }),
 });
 
 export type EnvConfig = z.infer<typeof envSchema>;

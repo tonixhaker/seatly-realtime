@@ -8,6 +8,7 @@ import {
   ApiOkResponse,
   ApiOperation,
   ApiSecurity,
+  ApiServiceUnavailableResponse,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -64,6 +65,11 @@ export const ApiLiveSeats = () =>
     }),
     ApiOkResponse({ type: LiveSeatsDto }),
     badRequest(),
+    ApiServiceUnavailableResponse({
+      description:
+        'SOLD_STATE_UNAVAILABLE — the sold cache is cold and seatly-api is unreachable, so the sold set is unknown rather than empty.',
+      type: ErrorResponseDto,
+    }),
   );
 
 export const ApiValidateHolds = () =>

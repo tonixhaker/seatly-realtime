@@ -5,6 +5,8 @@ import {
   HOLD_TTL_SECONDS,
   expiryKey,
   holdKey,
+  holdPattern,
+  parseHoldSeatId,
   sessionKey,
   sessionMember,
 } from '../redis/keys';
@@ -33,6 +35,8 @@ export interface ReleaseInput {
 }
 
 const OWNER_PATTERN = /"sessionId":"([^"]*)"/;
+
+const SCAN_COUNT = 100;
 
 const ACQUIRE_SCRIPT = `
 local n = math.floor((#KEYS - 1) / 2)
@@ -146,6 +150,34 @@ export class HoldStoreService {
       const payload = payloads[i];
       return payload === null || OWNER_PATTERN.exec(payload)?.[1] !== sessionId;
     });
+  }
+
+  async heldSeats(eventId: number): Promise<number[]> {
+    const pattern = holdPattern(eventId);
+    const seatIds = new Set<number>();
+    let cursor = '0';
+
+    do {
+      const [next, keys] = await this.redis.scan(
+        cursor,
+        'MATCH',
+        pattern,
+        'COUNT',
+        SCAN_COUNT,
+      );
+
+      cursor = next;
+
+      for (const key of keys) {
+        const seatId = parseHoldSeatId(key, eventId);
+
+        if (seatId !== null) {
+          seatIds.add(seatId);
+        }
+      }
+    } while (cursor !== '0');
+
+    return [...seatIds].sort((a, b) => a - b);
   }
 
   async forgetExpired(expired: ExpiredHold): Promise<number> {
