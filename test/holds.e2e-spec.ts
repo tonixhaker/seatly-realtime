@@ -14,8 +14,6 @@ import { buildOpenApiDocument } from '../src/swagger';
 const SESSION_ID = '0b5f9d6e-3b4a-4c2d-8e1f-7a6b5c4d3e2f';
 const INTERNAL_TOKEN = 'e2e-internal-token';
 const INTERNAL_HEADER = 'X-Internal-Token';
-const SOLD_SEAT_IDS = [3, 7, 11];
-const HELD_SEAT_IDS = [5, 9];
 const BASE_EVENT_ID = 700000 + Math.floor(Math.random() * 90000);
 
 const anyString = expect.any(String) as string;
@@ -630,17 +628,6 @@ describe('Holds REST surface (e2e)', () => {
   });
 
   describe('GET /events/:id/live-seats', () => {
-    it('returns the held and sold snapshot for the event', async () => {
-      const response = await request(http())
-        .get('/events/1/live-seats')
-        .expect(200);
-
-      expect(bodyOf(response)).toEqual({
-        held: HELD_SEAT_IDS,
-        sold: SOLD_SEAT_IDS,
-      });
-    });
-
     it('rejects a non-numeric event id with 400 in the shared envelope', async () => {
       const response = await request(http())
         .get('/events/abc/live-seats')

@@ -6,6 +6,7 @@ const COMPLETE = {
   REDIS_HOST: 'redis',
   REDIS_PORT: '6379',
   RABBITMQ_URL: 'amqp://seatly:seatly@rabbitmq:5672',
+  CORE_API_URL: 'http://api:8000',
 };
 
 const without = (key: string): Record<string, unknown> => {
@@ -22,15 +23,19 @@ describe('validateEnv', () => {
       REDIS_HOST: 'redis',
       REDIS_PORT: 6379,
       RABBITMQ_URL: 'amqp://seatly:seatly@rabbitmq:5672',
+      CORE_API_URL: 'http://api:8000',
     });
   });
 
-  it.each(['INTERNAL_TOKEN', 'REDIS_HOST', 'REDIS_PORT', 'RABBITMQ_URL'])(
-    'refuses to start without %s and names it in the message',
-    (variable) => {
-      expect(() => validateEnv(without(variable))).toThrow(variable);
-    },
-  );
+  it.each([
+    'INTERNAL_TOKEN',
+    'REDIS_HOST',
+    'REDIS_PORT',
+    'RABBITMQ_URL',
+    'CORE_API_URL',
+  ])('refuses to start without %s and names it in the message', (variable) => {
+    expect(() => validateEnv(without(variable))).toThrow(variable);
+  });
 
   it('defaults PORT to 3000 rather than demanding it', () => {
     expect(validateEnv(without('PORT')).PORT).toBe(3000);
@@ -46,6 +51,12 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...COMPLETE, REDIS_PORT: 'abc' })).toThrow(
       'REDIS_PORT',
     );
+  });
+
+  it('rejects a CORE_API_URL that is not a url, which would make every warm fail', () => {
+    expect(() =>
+      validateEnv({ ...COMPLETE, CORE_API_URL: 'api:8000' }),
+    ).toThrow('CORE_API_URL');
   });
 
   it('tolerates unrelated environment variables, which the whole process env carries', () => {

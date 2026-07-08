@@ -1,11 +1,40 @@
 import type Redis from 'ioredis';
 import RedisMock from 'ioredis-mock';
 import { HoldPayload, HoldStoreService } from './hold-store.service';
-import { expiryKey, sessionMember } from '../redis/keys';
+import {
+  expiryKey,
+  holdKey,
+  holdPattern,
+  parseHoldSeatId,
+  sessionKey,
+  sessionMember,
+} from '../redis/keys';
 
 const EVENT = 42;
 const SESSION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
+describe('holdPattern and parseHoldSeatId', () => {
+  it('matches the hold keys of one event and no other', () => {
+    expect(holdPattern(EVENT)).toBe(`hold:${String(EVENT)}:*`);
+  });
+
+  it('reads the seat id out of a hold key of the event asked about', () => {
+    expect(parseHoldSeatId(holdKey(EVENT, 7), EVENT)).toBe(7);
+  });
+
+  it.each([
+    [holdKey(421, 7)],
+    [holdKey(4, 7)],
+    [`${holdKey(EVENT, 7)}:meta`],
+    [expiryKey(SESSION, EVENT, 7)],
+    [sessionKey(SESSION)],
+    [`hold:${String(EVENT)}:not-a-seat`],
+    [''],
+  ])('refuses %s as a held seat of event 42', (key) => {
+    expect(parseHoldSeatId(key, EVENT)).toBeNull();
+  });
+});
 
 describe('HoldStoreService', () => {
   let redis: Redis;
@@ -387,5 +416,85 @@ describe('HoldStoreService', () => {
     expect((await redis.smembers(`session:${SESSION}`)).map(String)).toEqual([
       sessionMember(EVENT, 1),
     ]);
+  });
+
+  describe('heldSeats', () => {
+    it('returns the seats held at this event, ascending, and nothing from another event', async () => {
+      await store.acquire({
+        eventId: EVENT,
+        seatIds: [9, 2],
+        sessionId: SESSION,
+      });
+      await store.acquire({
+        eventId: EVENT + 1,
+        seatIds: [4],
+        sessionId: SESSION,
+      });
+
+      expect(await store.heldSeats(EVENT)).toEqual([2, 9]);
+      expect(await store.heldSeats(EVENT + 1)).toEqual([4]);
+    });
+
+    it('answers an event with no holds with an empty array', async () => {
+      await store.acquire({
+        eventId: EVENT + 5,
+        seatIds: [1],
+        sessionId: SESSION,
+      });
+
+      expect(await store.heldSeats(EVENT)).toEqual([]);
+    });
+
+    it('never reports the expiry companion or the session key as a held seat', async () => {
+      await store.acquire({ eventId: EVENT, seatIds: [1], sessionId: SESSION });
+
+      expect(await redis.keys('*')).toEqual(
+        expect.arrayContaining([expiryKey(SESSION, EVENT, 1)]),
+      );
+      expect(await store.heldSeats(EVENT)).toEqual([1]);
+    });
+
+    it('follows the cursor past the first page instead of stopping at it', async () => {
+      const scan = jest
+        .spyOn(redis, 'scan')
+        .mockResolvedValueOnce(['17', [`hold:${EVENT}:5`]] as never)
+        .mockResolvedValueOnce(['0', [`hold:${EVENT}:6`]] as never);
+
+      expect(await store.heldSeats(EVENT)).toEqual([5, 6]);
+      expect(scan).toHaveBeenCalledTimes(2);
+    });
+
+    it('ignores a key SCAN hands back that is not a hold of this event', async () => {
+      jest
+        .spyOn(redis, 'scan')
+        .mockResolvedValueOnce([
+          '0',
+          [`hold:${String(EVENT)}:5`, 'hold:421:6', `session:${SESSION}`],
+        ] as never);
+
+      expect(await store.heldSeats(EVENT)).toEqual([5]);
+    });
+
+    it('never reports a hold of an event whose id merely starts with this one', async () => {
+      await store.acquire({ eventId: EVENT, seatIds: [7], sessionId: SESSION });
+      await store.acquire({ eventId: 421, seatIds: [8], sessionId: SESSION });
+      await store.acquire({ eventId: 4, seatIds: [9], sessionId: SESSION });
+
+      expect(await store.heldSeats(EVENT)).toEqual([7]);
+      expect(await store.heldSeats(4)).toEqual([9]);
+      expect(await store.heldSeats(421)).toEqual([8]);
+    });
+
+    it('counts a seat once when SCAN returns its key on two pages', async () => {
+      jest
+        .spyOn(redis, 'scan')
+        .mockResolvedValueOnce(['17', [`hold:${EVENT}:5`]] as never)
+        .mockResolvedValueOnce([
+          '0',
+          [`hold:${EVENT}:5`, `hold:${EVENT}:6`],
+        ] as never);
+
+      expect(await store.heldSeats(EVENT)).toEqual([5, 6]);
+    });
   });
 });

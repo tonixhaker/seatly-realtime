@@ -3,13 +3,14 @@ import { HoldSeatsDto } from './dto/hold-seats.dto';
 import { ValidateHoldsQueryDto } from './dto/validate-holds-query.dto';
 import { LiveSeatsDto, ValidateHoldsDto } from './dto/holds-response.dto';
 import { HoldStoreService } from './hold-store.service';
-
-const SOLD_SEAT_IDS = [3, 7, 11];
-const HELD_SEAT_IDS = [5, 9];
+import { SoldCacheService } from '../sold/sold-cache.service';
 
 @Injectable()
 export class HoldsService {
-  constructor(private readonly store: HoldStoreService) {}
+  constructor(
+    private readonly store: HoldStoreService,
+    private readonly sold: SoldCacheService,
+  ) {}
 
   async hold(dto: HoldSeatsDto): Promise<void> {
     const outcome = await this.store.acquire({
@@ -35,9 +36,15 @@ export class HoldsService {
     });
   }
 
-  liveSeats(eventId: number): LiveSeatsDto {
-    void eventId;
-    return { held: [...HELD_SEAT_IDS], sold: [...SOLD_SEAT_IDS] };
+  async liveSeats(eventId: number): Promise<LiveSeatsDto> {
+    const [held, sold] = await Promise.all([
+      this.store.heldSeats(eventId),
+      this.sold.soldSeats(eventId),
+    ]);
+
+    const soldSeats = new Set(sold);
+
+    return { held: held.filter((seatId) => !soldSeats.has(seatId)), sold };
   }
 
   async validate(query: ValidateHoldsQueryDto): Promise<ValidateHoldsDto> {

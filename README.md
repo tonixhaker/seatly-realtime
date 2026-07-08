@@ -48,6 +48,7 @@ application, including `pnpm openapi`.
 | `REDIS_HOST` | yes | the readiness probe, and holds from milestone 04 |
 | `REDIS_PORT` | yes | as above |
 | `RABBITMQ_URL` | yes | the readiness probe, and the consumer from milestone 05 |
+| `CORE_API_URL` | yes | warming `sold:{eventId}` from `seatly-api`; must carry an `http`/`https` scheme |
 
 ### With Docker
 
@@ -57,6 +58,7 @@ docker run -d -p 3000:3000 \
   -e INTERNAL_TOKEN=local-internal-token \
   -e REDIS_HOST=host.docker.internal -e REDIS_PORT=6379 \
   -e RABBITMQ_URL=amqp://seatly:seatly@host.docker.internal:5672 \
+  -e CORE_API_URL=http://host.docker.internal:8000 \
   seatly-realtime
 ```
 

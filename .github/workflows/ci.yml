@@ -106,6 +106,7 @@ jobs:
             -e PORT=3000 -e INTERNAL_TOKEN=ci-internal-token \
             -e REDIS_HOST=seatly-redis-ci -e REDIS_PORT=6379 \
             -e RABBITMQ_URL=amqp://seatly:seatly@seatly-rabbitmq-ci:5672 \
+            -e CORE_API_URL=http://127.0.0.1:8000 \
             seatly-realtime:ci
 
       - name: Probe liveness
