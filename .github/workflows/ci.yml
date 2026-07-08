@@ -13,15 +13,6 @@ jobs:
     name: Lint, build, tests and contract
     runs-on: ubuntu-24.04
     services:
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-timeout 3s
-          --health-retries 10
       rabbitmq:
         image: rabbitmq:3-management
         ports:
@@ -43,6 +34,16 @@ jobs:
         uses: actions/setup-node@v4.4.0
         with:
           node-version: 22.23.2
+
+      - name: Start Redis with keyspace notifications enabled
+        run: |
+          docker run -d --name seatly-redis-ci -p 6379:6379 \
+            redis:7 redis-server --notify-keyspace-events Ex
+          for i in $(seq 1 30); do
+            docker exec seatly-redis-ci redis-cli ping && break
+            sleep 1
+          done
+          docker exec seatly-redis-ci redis-cli config get notify-keyspace-events
 
       - name: Install pnpm
         run: npm install -g pnpm@10.29.3
@@ -70,6 +71,10 @@ jobs:
 
       - name: Fail if the OpenAPI contract changed
         run: git diff --exit-code docs/openapi.json
+
+      - name: Stop Redis
+        if: always()
+        run: docker rm -f seatly-redis-ci
 
   docker:
     name: Docker image

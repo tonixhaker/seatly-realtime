@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import Redis from 'ioredis';
-import { HOLD_TTL_SECONDS, holdKey, sessionKey } from '../redis/keys';
+import {
+  ExpiredHold,
+  HOLD_TTL_SECONDS,
+  expiryKey,
+  holdKey,
+  sessionKey,
+  sessionMember,
+} from '../redis/keys';
 
 export interface HoldPayload {
   sessionId: string;
@@ -28,12 +35,13 @@ export interface ReleaseInput {
 const OWNER_PATTERN = /"sessionId":"([^"]*)"/;
 
 const ACQUIRE_SCRIPT = `
-local n = #KEYS - 1
-local sessionKey = KEYS[n + 1]
+local n = math.floor((#KEYS - 1) / 2)
+local sessionKey = KEYS[#KEYS]
 local codes = ''
 local conflicted = false
 for i = 1, n do
   if redis.call('SET', KEYS[i], ARGV[2], 'NX', 'EX', ARGV[3]) then
+    redis.call('SET', KEYS[n + i], '', 'EX', ARGV[3])
     codes = codes .. 'T'
   else
     local current = redis.call('GET', KEYS[i])
@@ -49,6 +57,7 @@ if conflicted then
   for i = 1, n do
     if string.sub(codes, i, i) == 'T' then
       redis.call('DEL', KEYS[i])
+      redis.call('DEL', KEYS[n + i])
     end
   end
   return codes
@@ -56,17 +65,20 @@ end
 for i = 1, n do
   redis.call('SADD', sessionKey, ARGV[3 + i])
 end
-redis.call('EXPIRE', sessionKey, ARGV[3])
+if string.find(codes, 'T') then
+  redis.call('EXPIRE', sessionKey, ARGV[3])
+end
 return codes
 `;
 
 const RELEASE_SCRIPT = `
-local n = #KEYS - 1
-local sessionKey = KEYS[n + 1]
+local n = math.floor((#KEYS - 1) / 2)
+local sessionKey = KEYS[#KEYS]
 local codes = ''
 for i = 1, n do
   local current = redis.call('GET', KEYS[i])
   redis.call('SREM', sessionKey, ARGV[1 + i])
+  redis.call('DEL', KEYS[n + i])
   if current and string.match(current, '"sessionId":"([^"]*)"') == ARGV[1] then
     redis.call('DEL', KEYS[i])
     codes = codes .. 'D'
@@ -92,7 +104,7 @@ export class HoldStoreService {
     const codes = await this.run(ACQUIRE_SCRIPT, eventId, seatIds, sessionId, [
       JSON.stringify(payload),
       String(HOLD_TTL_SECONDS),
-      ...seatIds.map(String),
+      ...seatIds.map((seatId) => sessionMember(eventId, seatId)),
     ]);
 
     if (codes.includes('C')) {
@@ -117,7 +129,7 @@ export class HoldStoreService {
       eventId,
       seatIds,
       sessionId,
-      seatIds.map(String),
+      seatIds.map((seatId) => sessionMember(eventId, seatId)),
     );
 
     return seatIds.filter((_, i) => codes[i] === 'D');
@@ -136,6 +148,13 @@ export class HoldStoreService {
     });
   }
 
+  async forgetExpired(expired: ExpiredHold): Promise<number> {
+    return this.redis.srem(
+      sessionKey(expired.sessionId),
+      sessionMember(expired.eventId, expired.seatId),
+    );
+  }
+
   private async run(
     script: string,
     eventId: number,
@@ -145,6 +164,7 @@ export class HoldStoreService {
   ): Promise<string> {
     const keys = [
       ...seatIds.map((seatId) => holdKey(eventId, seatId)),
+      ...seatIds.map((seatId) => expiryKey(sessionId, eventId, seatId)),
       sessionKey(sessionId),
     ];
 
