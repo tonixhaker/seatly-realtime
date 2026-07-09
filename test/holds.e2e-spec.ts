@@ -694,7 +694,7 @@ describe('Holds REST surface (e2e)', () => {
         'x-internal': true,
       });
       expect(publicOperation).not.toHaveProperty('x-internal');
-      expect(publicOperation).not.toHaveProperty('security');
+      expect(publicOperation?.security).toEqual([{}, { bearer: [] }]);
     });
 
     it('documents the 409 conflict body as a named schema carrying conflicting_seat_ids', () => {

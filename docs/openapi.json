@@ -3,7 +3,7 @@
   "paths": {
     "/holds": {
       "post": {
-        "description": "Acquisition is all or nothing. A partial conflict releases everything the request took before responding.",
+        "description": "Acquisition is all or nothing. A partial conflict releases everything the request took before responding. The bearer token is optional: with one the hold records the buyer, without one the caller is an anonymous guest identified by session_id alone.",
         "operationId": "HoldsController_create",
         "parameters": [],
         "requestBody": {
@@ -30,6 +30,16 @@
               }
             }
           },
+          "401": {
+            "description": "UNAUTHENTICATED — a bearer token was presented and seatly-api rejected it. A request with no token is a guest and is never refused here.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
           "409": {
             "description": "SEATS_CONFLICT — at least one seat is already held by another session.",
             "content": {
@@ -39,15 +49,31 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "AUTH_STATE_UNAVAILABLE — a bearer token was presented and seatly-api could not be asked about it, so the caller is neither verified nor assumed to be a guest.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
           }
         },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
         "summary": "Hold seats for a session",
         "tags": [
           "holds"
         ]
       },
       "delete": {
-        "description": "Idempotent. Seats held by another session are silently not released rather than erroring.",
+        "description": "Idempotent. Seats held by another session are silently not released rather than erroring. The bearer token is optional, and ownership is decided by session_id either way.",
         "operationId": "HoldsController_release",
         "parameters": [],
         "requestBody": {
@@ -73,8 +99,34 @@
                 }
               }
             }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED — a bearer token was presented and seatly-api rejected it. A request with no token is a guest and is never refused here.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "AUTH_STATE_UNAVAILABLE — a bearer token was presented and seatly-api could not be asked about it, so the caller is neither verified nor assumed to be a guest.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
           }
         },
+        "security": [
+          {},
+          {
+            "bearer": []
+          }
+        ],
         "summary": "Release seats held by a session",
         "tags": [
           "holds"
@@ -250,6 +302,10 @@
         "type": "apiKey",
         "in": "header",
         "name": "X-Internal-Token"
+      },
+      "bearer": {
+        "type": "http",
+        "scheme": "bearer"
       }
     },
     "schemas": {

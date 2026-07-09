@@ -12,11 +12,12 @@ export class HoldsService {
     private readonly sold: SoldCacheService,
   ) {}
 
-  async hold(dto: HoldSeatsDto): Promise<void> {
+  async hold(dto: HoldSeatsDto, userId: number | undefined): Promise<void> {
     const outcome = await this.store.acquire({
       eventId: dto.event_id,
       seatIds: dto.seat_ids,
       sessionId: dto.session_id,
+      userId,
     });
 
     if (!outcome.ok) {
