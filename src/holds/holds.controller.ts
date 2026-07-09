@@ -11,6 +11,8 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
+import { CoreAuthGuard } from '../auth/core-auth.guard';
+import { CurrentUserId } from '../auth/current-user-id.decorator';
 import { HoldsService } from './holds.service';
 import { HoldSeatsDto } from './dto/hold-seats.dto';
 import { ValidateHoldsQueryDto } from './dto/validate-holds-query.dto';
@@ -30,12 +32,17 @@ export class HoldsController {
   constructor(private readonly holds: HoldsService) {}
 
   @ApiCreateHold()
+  @UseGuards(CoreAuthGuard)
   @Post('holds')
-  async create(@Body() dto: HoldSeatsDto): Promise<void> {
-    await this.holds.hold(dto);
+  async create(
+    @Body() dto: HoldSeatsDto,
+    @CurrentUserId() userId: number | undefined,
+  ): Promise<void> {
+    await this.holds.hold(dto, userId);
   }
 
   @ApiReleaseHold()
+  @UseGuards(CoreAuthGuard)
   @HttpCode(HttpStatus.NO_CONTENT)
   @Delete('holds')
   async release(@Body() dto: HoldSeatsDto): Promise<void> {

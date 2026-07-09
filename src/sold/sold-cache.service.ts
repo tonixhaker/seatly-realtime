@@ -2,10 +2,9 @@ import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
 import { z } from 'zod';
+import { coreFetch } from '../core-fetch';
 import { EnvConfig } from '../env.schema';
 import { SOLD_WARM_TTL_SECONDS, soldKey, soldWarmKey } from '../redis/keys';
-
-const CORE_TIMEOUT_MS = 2000;
 
 const coreSeats = z.array(
   z.object({ id: z.number().int(), status: z.string() }),
@@ -71,9 +70,9 @@ export class SoldCacheService {
   private async fromCore(eventId: number): Promise<number[]> {
     const base = this.config.get('CORE_API_URL', { infer: true });
 
-    const response = await fetch(
-      `${base}/api/v1/events/${String(eventId)}/seats`,
-      { signal: AbortSignal.timeout(CORE_TIMEOUT_MS) },
+    const response = await coreFetch(
+      base,
+      `/api/v1/events/${String(eventId)}/seats`,
     );
 
     if (response.status === 404) {

@@ -18,6 +18,12 @@ domain events from [seatly-api](https://github.com/tonixhaker/seatly-api).
 REST — `POST /holds`, `DELETE /holds`, `GET /events/{id}/live-seats`, and
 `GET /internal/holds/validate` on the internal network. OpenAPI via `@nestjs/swagger`.
 
+The two `/holds` routes take an **optional** bearer token, validated by asking
+`seatly-api` for `GET /api/v1/me` and cached for 60 seconds. With a token the hold records
+the buyer's user id; with none the caller is an anonymous guest identified by `session_id`
+alone. A token `seatly-api` rejects is `401`, never a silent guest, and a token that cannot
+be checked at all because `seatly-api` is unreachable is `503 AUTH_STATE_UNAVAILABLE`.
+
 WebSocket — namespace `/events`, emitting `snapshot`, `seat.held`, `seat.released` and
 `seat.sold`. The protocol is specified in [`docs/websocket.md`](docs/websocket.md).
 

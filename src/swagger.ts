@@ -1,6 +1,9 @@
 import { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
-import { INTERNAL_SECURITY_SCHEME } from './holds/holds.swagger';
+import {
+  BEARER_SECURITY_SCHEME,
+  INTERNAL_SECURITY_SCHEME,
+} from './holds/holds.swagger';
 import { INTERNAL_TOKEN_HEADER } from './holds/internal-token.guard';
 
 export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
@@ -17,6 +20,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
       { type: 'apiKey', name: INTERNAL_TOKEN_HEADER, in: 'header' },
       INTERNAL_SECURITY_SCHEME,
     )
+    .addSecurity(BEARER_SECURITY_SCHEME, { type: 'http', scheme: 'bearer' })
     .build();
 
   return SwaggerModule.createDocument(app, config);
