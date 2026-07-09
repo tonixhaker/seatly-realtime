@@ -8,7 +8,7 @@ import Redis from 'ioredis';
 import { HoldsModule } from '../src/holds/holds.module';
 import { validateEnv } from '../src/env.schema';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
-import { holdKey } from '../src/redis/keys';
+import { holdKey, sessionKey, soldKey, soldWarmKey } from '../src/redis/keys';
 import { CoreStub } from './support/core-stub';
 
 const BASE_EVENT_ID = 400000 + Math.floor(Math.random() * 90000);
@@ -116,6 +116,18 @@ describe('Token validation through core (e2e)', () => {
       .mockImplementation((message: unknown, trace?: unknown) => {
         logged.push(`${String(message)} ${String(trace)}`);
       });
+  });
+
+  afterEach(async () => {
+    const doomed = [
+      ...(await redis.keys(`hold:${String(eventId)}:*`)),
+      ...(await redis.keys(`expiry:*:${String(eventId)}:*`)),
+      sessionKey(session),
+      soldKey(eventId),
+      soldWarmKey(eventId),
+    ];
+
+    await redis.del(...doomed);
   });
 
   afterAll(async () => {
