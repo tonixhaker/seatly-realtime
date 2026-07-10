@@ -11,12 +11,59 @@ export interface CoreStubUser {
   role: string;
 }
 
-const DEFAULT_USER: CoreStubUser = {
+export const DEFAULT_USER: CoreStubUser = {
   id: 4,
   name: 'Iris Janssen',
   email: 'buyer@seatly.test',
   role: 'buyer',
 };
+
+export const CORE_SEATS = [
+  {
+    id: 1,
+    section: 'Front Stalls',
+    row: 1,
+    number: 1,
+    x: 40,
+    y: 45,
+    price_cents: 8500,
+    currency: 'EUR',
+    status: 'free',
+  },
+  {
+    id: 2,
+    section: 'Front Stalls',
+    row: 1,
+    number: 2,
+    x: 80,
+    y: 45,
+    price_cents: 8500,
+    currency: 'EUR',
+    status: 'sold',
+  },
+  {
+    id: 3,
+    section: 'Front Stalls',
+    row: 1,
+    number: 3,
+    x: 120,
+    y: 45,
+    price_cents: 8500,
+    currency: 'EUR',
+    status: 'free',
+  },
+  {
+    id: 4,
+    section: 'Front Stalls',
+    row: 1,
+    number: 4,
+    x: 160,
+    y: 45,
+    price_cents: 8500,
+    currency: 'EUR',
+    status: 'sold',
+  },
+];
 
 export class CoreStub {
   private readonly server: Server;

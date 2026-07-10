@@ -9,56 +9,9 @@ import { HoldsModule } from '../src/holds/holds.module';
 import { validateEnv } from '../src/env.schema';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
 import { soldKey, soldWarmKey } from '../src/redis/keys';
-import { CoreStub } from './support/core-stub';
+import { CORE_SEATS as SEATS, CoreStub } from './support/core-stub';
 
 const BASE_EVENT_ID = 500000 + Math.floor(Math.random() * 90000);
-
-const SEATS = [
-  {
-    id: 1,
-    section: 'Front Stalls',
-    row: 1,
-    number: 1,
-    x: 40,
-    y: 45,
-    price_cents: 8500,
-    currency: 'EUR',
-    status: 'free',
-  },
-  {
-    id: 2,
-    section: 'Front Stalls',
-    row: 1,
-    number: 2,
-    x: 80,
-    y: 45,
-    price_cents: 8500,
-    currency: 'EUR',
-    status: 'sold',
-  },
-  {
-    id: 3,
-    section: 'Front Stalls',
-    row: 1,
-    number: 3,
-    x: 120,
-    y: 45,
-    price_cents: 8500,
-    currency: 'EUR',
-    status: 'free',
-  },
-  {
-    id: 4,
-    section: 'Front Stalls',
-    row: 1,
-    number: 4,
-    x: 160,
-    y: 45,
-    price_cents: 8500,
-    currency: 'EUR',
-    status: 'sold',
-  },
-];
 
 const buildApp = async (coreUrl: string): Promise<INestApplication<App>> => {
   const env = {

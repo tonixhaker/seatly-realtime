@@ -683,6 +683,18 @@ describe('Holds REST surface (e2e)', () => {
       expect(document.paths['/holds'].delete).toBeDefined();
     });
 
+    it('carries exactly three paths and four operations in the committed file', () => {
+      const document = committed() as {
+        paths: Record<string, Record<string, unknown>>;
+      };
+      const operations = Object.values(document.paths).flatMap((item) =>
+        Object.keys(item),
+      );
+
+      expect(Object.keys(document.paths)).toHaveLength(3);
+      expect(operations).toHaveLength(4);
+    });
+
     it('marks the internal route distinctly and leaves the public ones unmarked', () => {
       const document = buildOpenApiDocument(app);
       const internal = document.paths['/internal/holds/validate'].get;
