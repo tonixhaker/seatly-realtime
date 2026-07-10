@@ -1,0 +1,70 @@
+{
+  "UserResource": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "integer"
+      },
+      "name": {
+        "type": "string"
+      },
+      "email": {
+        "type": "string"
+      },
+      "role": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "name",
+      "email",
+      "role"
+    ],
+    "title": "UserResource"
+  },
+  "SeatResource": {
+    "type": "object",
+    "properties": {
+      "id": {
+        "type": "integer"
+      },
+      "section": {
+        "type": "string"
+      },
+      "row": {
+        "type": "integer"
+      },
+      "number": {
+        "type": "integer"
+      },
+      "x": {
+        "type": "integer"
+      },
+      "y": {
+        "type": "integer"
+      },
+      "price_cents": {
+        "type": "integer"
+      },
+      "currency": {
+        "type": "string"
+      },
+      "status": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "id",
+      "section",
+      "row",
+      "number",
+      "x",
+      "y",
+      "price_cents",
+      "currency",
+      "status"
+    ],
+    "title": "SeatResource"
+  }
+}
