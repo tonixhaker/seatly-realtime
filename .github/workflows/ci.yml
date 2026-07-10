@@ -3,7 +3,7 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [staging, main]
 
 permissions:
   contents: read
@@ -60,17 +60,36 @@ jobs:
       - name: Compile TypeScript
         run: pnpm build
 
-      - name: Run the unit specs
-        run: pnpm test
+      - name: Run the unit specs and gate coverage of the logic layer
+        run: pnpm test:cov
 
       - name: Run the e2e suite against Redis and RabbitMQ
         run: pnpm test:e2e
 
-      - name: Regenerate the OpenAPI contract
-        run: pnpm openapi
+      - name: Regenerate the OpenAPI contract and require the file to be rewritten
+        run: |
+          stamp='process.stdout.write(String(require("fs").statSync("docs/openapi.json").mtimeMs))'
+          before=$(node -e "$stamp")
+          pnpm openapi
+          after=$(node -e "$stamp")
+          echo "modification time $before then $after"
+          test "$before" != "$after"
 
       - name: Fail if the OpenAPI contract changed
         run: git diff --exit-code docs/openapi.json
+
+      - name: Require the contract to still describe every route
+        run: |
+          node -e '
+            const document = require("./docs/openapi.json");
+            const paths = Object.keys(document.paths);
+            const operations = paths.flatMap((path) => Object.keys(document.paths[path]));
+            console.log(`${paths.length} paths, ${operations.length} operations`);
+            if (paths.length !== 3 || operations.length !== 4) {
+              console.error("expected 3 paths and 4 operations");
+              process.exit(1);
+            }
+          '
 
       - name: Stop Redis
         if: always()

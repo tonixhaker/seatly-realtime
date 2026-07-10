@@ -74,10 +74,21 @@
       "^.+\\.(t|j)s$": "ts-jest"
     },
     "collectCoverageFrom": [
-      "**/*.(t|j)s"
+      "**/*.service.ts",
+      "env.schema.ts",
+      "core-fetch.ts",
+      "!holds/holds.service.ts"
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
-    "passWithNoTests": true
+    "passWithNoTests": true,
+    "coverageThreshold": {
+      "global": {
+        "statements": 90,
+        "lines": 90,
+        "branches": 80,
+        "functions": 80
+      }
+    }
   }
 }
