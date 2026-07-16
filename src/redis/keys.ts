@@ -60,3 +60,8 @@ export const parseHoldSeatId = (
 
   return Number(match[2]);
 };
+
+export const CONSUMED_TTL_SECONDS = 86400;
+
+export const consumedKey = (envelopeEventId: string): string =>
+  `consumed:${envelopeEventId}`;

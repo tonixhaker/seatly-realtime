@@ -10,11 +10,18 @@ import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
 import { buildOpenApiDocument } from '../src/swagger';
+import { CONSUMER_TOPOLOGY } from '../src/consumer/topology';
+import {
+  deleteTopology,
+  throwawayTopology,
+} from './support/throwaway-topology';
 
 const SESSION_ID = '0b5f9d6e-3b4a-4c2d-8e1f-7a6b5c4d3e2f';
 const INTERNAL_TOKEN = 'e2e-internal-token';
 const INTERNAL_HEADER = 'X-Internal-Token';
 const BASE_EVENT_ID = 700000 + Math.floor(Math.random() * 90000);
+
+const topology = throwawayTopology('holds');
 
 const anyString = expect.any(String) as string;
 
@@ -70,7 +77,10 @@ describe('Holds REST surface (e2e)', () => {
   beforeAll(async () => {
     const moduleRef: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
-    }).compile();
+    })
+      .overrideProvider(CONSUMER_TOPOLOGY)
+      .useValue(topology)
+      .compile();
 
     app = moduleRef.createNestApplication<App>();
     app.useGlobalPipes(
@@ -113,6 +123,7 @@ describe('Holds REST surface (e2e)', () => {
       process.env.INTERNAL_TOKEN = originalToken;
     }
     await app.close();
+    await deleteTopology(topology);
   });
 
   describe('GET /internal/holds/validate authorization', () => {

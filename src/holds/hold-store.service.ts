@@ -93,6 +93,26 @@ end
 return codes
 `;
 
+const FORCE_RELEASE_SCRIPT = `
+local codes = ''
+for i = 1, #KEYS do
+  local current = redis.call('GET', KEYS[i])
+  if current then
+    local session = string.match(current, '"sessionId":"([^"]*)"')
+    redis.call('DEL', KEYS[i])
+    if session then
+      local member = ARGV[1] .. ':' .. ARGV[1 + i]
+      redis.call('DEL', 'expiry:' .. session .. ':' .. member)
+      redis.call('SREM', 'session:' .. session, member)
+    end
+    codes = codes .. 'D'
+  else
+    codes = codes .. 'K'
+  end
+end
+return codes
+`;
+
 @Injectable()
 export class HoldStoreService {
   constructor(private readonly redis: Redis) {}
@@ -134,6 +154,31 @@ export class HoldStoreService {
       seatIds,
       sessionId,
       seatIds.map((seatId) => sessionMember(eventId, seatId)),
+    );
+
+    return seatIds.filter((_, i) => codes[i] === 'D');
+  }
+
+  async forceRelease(
+    input: Omit<ReleaseInput, 'sessionId'>,
+  ): Promise<number[]> {
+    const { eventId, seatIds } = input;
+
+    if (seatIds.length === 0) {
+      return [];
+    }
+
+    const keys = seatIds.map((seatId) => holdKey(eventId, seatId));
+
+    const codes = this.decode(
+      await this.redis.eval(
+        FORCE_RELEASE_SCRIPT,
+        keys.length,
+        ...keys,
+        String(eventId),
+        ...seatIds.map(String),
+      ),
+      seatIds.length,
     );
 
     return seatIds.filter((_, i) => codes[i] === 'D');
@@ -208,9 +253,13 @@ export class HoldStoreService {
       ...tail,
     );
 
-    if (typeof codes !== 'string' || codes.length !== seatIds.length) {
+    return this.decode(codes, seatIds.length);
+  }
+
+  private decode(codes: unknown, expected: number): string {
+    if (typeof codes !== 'string' || codes.length !== expected) {
       throw new Error(
-        `Hold script returned an unusable result for ${String(seatIds.length)} seats.`,
+        `Hold script returned an unusable result for ${String(expected)} seats.`,
       );
     }
 

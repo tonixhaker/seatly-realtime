@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://schemas.seatly.dev/events/event.published.json",
+    "title": "event.published",
+    "type": "object",
+    "allOf": [
+        {
+            "$ref": "envelope.json"
+        }
+    ],
+    "properties": {
+        "event_type": {
+            "const": "event.published"
+        },
+        "version": {
+            "const": 1
+        },
+        "payload": {
+            "type": "object",
+            "properties": {
+                "event_id": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "seat_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                }
+            },
+            "required": [
+                "event_id",
+                "seat_ids"
+            ],
+            "additionalProperties": false
+        }
+    }
+}

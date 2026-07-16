@@ -8,6 +8,11 @@ import { validateEnv } from '../src/env.schema';
 import { HealthModule } from '../src/health/health.module';
 import { HealthService } from '../src/health/health.service';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
+import { CONSUMER_TOPOLOGY } from '../src/consumer/topology';
+import {
+  deleteTopology,
+  throwawayTopology,
+} from './support/throwaway-topology';
 
 const CLOSED_REDIS_PORT = '59321';
 const CLOSED_AMQP_URL = 'amqp://seatly:seatly@127.0.0.1:59322';
@@ -189,11 +194,15 @@ describe('Health probes (e2e)', () => {
 
   describe('as mounted in the application Compose actually runs', () => {
     let app: INestApplication<App>;
+    const topology = throwawayTopology('health');
 
     beforeAll(async () => {
       const moduleRef: TestingModule = await Test.createTestingModule({
         imports: [AppModule],
-      }).compile();
+      })
+        .overrideProvider(CONSUMER_TOPOLOGY)
+        .useValue(topology)
+        .compile();
 
       app = moduleRef.createNestApplication<App>();
       app.useGlobalPipes(
@@ -209,6 +218,7 @@ describe('Health probes (e2e)', () => {
 
     afterAll(async () => {
       await app.close();
+      await deleteTopology(topology);
     });
 
     it('serves liveness from AppModule with no credential and no header', async () => {

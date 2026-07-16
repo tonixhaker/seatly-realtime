@@ -418,6 +418,80 @@ describe('HoldStoreService', () => {
     ]);
   });
 
+  describe('forceRelease', () => {
+    it('releases a hold owned by a session the caller does not have', async () => {
+      await store.acquire({ eventId: EVENT, seatIds: [1], sessionId: OTHER });
+
+      expect(
+        await store.forceRelease({ eventId: EVENT, seatIds: [1] }),
+      ).toEqual([1]);
+      expect(await redis.exists(holdKey(EVENT, 1))).toBe(0);
+    });
+
+    it('deletes the owner companion key and drops exactly its session member', async () => {
+      await store.acquire({
+        eventId: EVENT,
+        seatIds: [1, 2],
+        sessionId: OTHER,
+      });
+
+      await store.forceRelease({ eventId: EVENT, seatIds: [1] });
+
+      expect(await redis.exists(expiryKey(OTHER, EVENT, 1))).toBe(0);
+      expect(await redis.exists(expiryKey(OTHER, EVENT, 2))).toBe(1);
+      expect((await redis.smembers(sessionKey(OTHER))).map(String)).toEqual([
+        sessionMember(EVENT, 2),
+      ]);
+    });
+
+    it('leaves a hold on a seat it was not asked about untouched', async () => {
+      await store.acquire({ eventId: EVENT, seatIds: [1], sessionId: OTHER });
+      await store.acquire({ eventId: EVENT, seatIds: [2], sessionId: SESSION });
+      const kept = await redis.get(holdKey(EVENT, 2));
+
+      await store.forceRelease({ eventId: EVENT, seatIds: [1] });
+
+      expect(await redis.get(holdKey(EVENT, 2))).toBe(kept);
+      expect(await redis.exists(expiryKey(SESSION, EVENT, 2))).toBe(1);
+      expect((await redis.smembers(sessionKey(SESSION))).map(String)).toEqual([
+        sessionMember(EVENT, 2),
+      ]);
+    });
+
+    it('returns only the seats it actually deleted, in request order', async () => {
+      await store.acquire({
+        eventId: EVENT,
+        seatIds: [9, 4],
+        sessionId: OTHER,
+      });
+
+      expect(
+        await store.forceRelease({ eventId: EVENT, seatIds: [9, 2, 4] }),
+      ).toEqual([9, 4]);
+    });
+
+    it('does not run a script at all for an empty seat list', async () => {
+      const evaluate = jest.spyOn(redis, 'eval');
+
+      expect(await store.forceRelease({ eventId: EVENT, seatIds: [] })).toEqual(
+        [],
+      );
+      expect(evaluate).toHaveBeenCalledTimes(0);
+    });
+
+    it('deletes a hold whose payload names no session', async () => {
+      await redis.set(
+        holdKey(EVENT, 5),
+        JSON.stringify({ heldAt: '2026-10-01T18:42:11Z' }),
+      );
+
+      expect(
+        await store.forceRelease({ eventId: EVENT, seatIds: [5] }),
+      ).toEqual([5]);
+      expect(await redis.exists(holdKey(EVENT, 5))).toBe(0);
+    });
+  });
+
   describe('heldSeats', () => {
     it('returns the seats held at this event, ascending, and nothing from another event', async () => {
       await store.acquire({

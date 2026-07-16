@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://schemas.seatly.dev/events/tickets.issued.json",
+    "title": "tickets.issued",
+    "type": "object",
+    "allOf": [
+        {
+            "$ref": "envelope.json"
+        }
+    ],
+    "properties": {
+        "event_type": {
+            "const": "tickets.issued"
+        },
+        "version": {
+            "const": 1
+        },
+        "payload": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "ticket_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            },
+            "required": [
+                "order_id",
+                "ticket_ids"
+            ],
+            "additionalProperties": false
+        }
+    }
+}
