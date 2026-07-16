@@ -37,6 +37,18 @@ export class SoldCacheService {
     return warm;
   }
 
+  async markSold(eventId: number, seatIds: number[]): Promise<void> {
+    if (seatIds.length === 0) {
+      return;
+    }
+
+    await this.redis.sadd(soldKey(eventId), ...seatIds);
+  }
+
+  async markWarm(eventId: number): Promise<void> {
+    await this.redis.set(soldWarmKey(eventId), '', 'EX', SOLD_WARM_TTL_SECONDS);
+  }
+
   private async warm(eventId: number): Promise<number[]> {
     let sold: number[];
 

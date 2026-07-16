@@ -298,6 +298,43 @@ describe('SoldCacheService', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
+  describe('markSold and markWarm', () => {
+    it('unions the paid seats into a set that already exists', async () => {
+      await redis.sadd(soldKey(EVENT), 99);
+
+      await cache.markSold(EVENT, [2, 4]);
+
+      expect(
+        (await redis.smembers(soldKey(EVENT)))
+          .map(Number)
+          .sort((a, b) => a - b),
+      ).toEqual([2, 4, 99]);
+      expect(await redis.ttl(soldKey(EVENT))).toBe(-1);
+    });
+
+    it('does not mark the event warm, so a cold cache still asks core', async () => {
+      await cache.markSold(EVENT, [2]);
+
+      expect(await redis.exists(soldWarmKey(EVENT))).toBe(0);
+    });
+
+    it('writes nothing at all when the order paid for no seats', async () => {
+      const sadd = jest.spyOn(redis, 'sadd');
+
+      await cache.markSold(EVENT, []);
+
+      expect(sadd).toHaveBeenCalledTimes(0);
+      expect(await redis.keys('*')).toEqual([]);
+    });
+
+    it('marks an event warm for a minute without creating a sold set', async () => {
+      await cache.markWarm(EVENT);
+
+      expect(await redis.ttl(soldWarmKey(EVENT))).toBe(60);
+      expect(await redis.exists(soldKey(EVENT))).toBe(0);
+    });
+  });
+
   describe('against a socket that accepts and never answers', () => {
     let idle: Server;
     let stalled: SoldCacheService;

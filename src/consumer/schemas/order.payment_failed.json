@@ -1,0 +1,50 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://schemas.seatly.dev/events/order.payment_failed.json",
+    "title": "order.payment_failed",
+    "type": "object",
+    "allOf": [
+        {
+            "$ref": "envelope.json"
+        }
+    ],
+    "properties": {
+        "event_type": {
+            "const": "order.payment_failed"
+        },
+        "version": {
+            "const": 1
+        },
+        "payload": {
+            "type": "object",
+            "properties": {
+                "order_id": {
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "event_id": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "seat_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer",
+                        "minimum": 1
+                    }
+                },
+                "session_id": {
+                    "type": "string",
+                    "format": "uuid"
+                }
+            },
+            "required": [
+                "order_id",
+                "event_id",
+                "seat_ids",
+                "session_id"
+            ],
+            "additionalProperties": false
+        }
+    }
+}
