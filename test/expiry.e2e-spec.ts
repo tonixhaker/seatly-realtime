@@ -5,6 +5,7 @@ import {
   EXPIRY_CONNECTION_NAME,
   ExpiryService,
 } from '../src/expiry/expiry.service';
+import { SeatEventsService } from '../src/events/seat-events.service';
 import { HoldStoreService } from '../src/holds/hold-store.service';
 import {
   expiryKey,
@@ -49,7 +50,7 @@ describe('hold expiry through keyspace notifications', () => {
     }
 
     store = new HoldStoreService(redis);
-    expiry = new ExpiryService(redis, store);
+    expiry = new ExpiryService(redis, store, new SeatEventsService());
     await waitUntil(
       async () =>
         (await redis.pubsub('NUMSUB', '__keyevent@0__:expired'))[1] !== 0,
@@ -245,7 +246,11 @@ describe('hold expiry through keyspace notifications', () => {
     detached.on('error', () => undefined);
     const detachedStore = new HoldStoreService(redis);
     const cleaned = jest.spyOn(detachedStore, 'forgetExpired');
-    const service = new ExpiryService(detached, detachedStore);
+    const service = new ExpiryService(
+      detached,
+      detachedStore,
+      new SeatEventsService(),
+    );
     let proxy: Server | undefined;
 
     try {

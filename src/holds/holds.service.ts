@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from '@nestjs/common';
 import { HoldSeatsDto } from './dto/hold-seats.dto';
 import { ValidateHoldsQueryDto } from './dto/validate-holds-query.dto';
 import { LiveSeatsDto, ValidateHoldsDto } from './dto/holds-response.dto';
+import { SeatEventsService } from '../events/seat-events.service';
 import { HoldStoreService } from './hold-store.service';
 import { SoldCacheService } from '../sold/sold-cache.service';
 
@@ -10,6 +11,7 @@ export class HoldsService {
   constructor(
     private readonly store: HoldStoreService,
     private readonly sold: SoldCacheService,
+    private readonly seatEvents: SeatEventsService,
   ) {}
 
   async hold(dto: HoldSeatsDto, userId: number | undefined): Promise<void> {
@@ -27,14 +29,18 @@ export class HoldsService {
         details: { conflicting_seat_ids: outcome.conflicts },
       });
     }
+
+    this.seatEvents.emitHeld(dto.event_id, dto.seat_ids, dto.session_id);
   }
 
   async release(dto: HoldSeatsDto): Promise<void> {
-    await this.store.release({
+    const released = await this.store.release({
       eventId: dto.event_id,
       seatIds: dto.seat_ids,
       sessionId: dto.session_id,
     });
+
+    this.seatEvents.emitReleased(dto.event_id, released);
   }
 
   async liveSeats(eventId: number): Promise<LiveSeatsDto> {

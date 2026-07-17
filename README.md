@@ -87,8 +87,9 @@ docker run -d -p 5672:5672 --user rabbitmq \
 
 ## Status
 
-Work in progress. The service builds, boots and answers its health routes; holds, the
-WebSocket gateway and the event consumer are not implemented yet.
+Work in progress. Holds, hold expiry, the live seat state, the RabbitMQ consumer and the
+WebSocket gateway are all implemented. The browser client that consumes the socket is
+milestone 06.
 
 ## License
 

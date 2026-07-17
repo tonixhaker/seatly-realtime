@@ -12,9 +12,9 @@ against nothing else. If a rule is not written here, it is not part of the proto
 The REST surface of this service is specified separately, in `docs/openapi.json`. The two
 are complementary: state is changed over REST and observed over the socket (§9).
 
-Nothing described here is implemented yet. `POST /holds`, `DELETE /holds`,
-`GET /events/{id}/live-seats` and `GET /internal/holds/validate` all move real Redis state
-since milestone 04; the socket does not exist.
+`POST /holds`, `DELETE /holds`, `GET /events/{id}/live-seats` and
+`GET /internal/holds/validate` all move real Redis state since milestone 04, and the socket
+described here is implemented as of milestone 05. The browser client is milestone 06.
 
 ## 2. Connection
 
