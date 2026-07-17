@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
 import Redis from 'ioredis';
+import { SeatEventsService } from '../events/seat-events.service';
 import { EXPIRED_CHANNEL, parseExpiryKey } from '../redis/keys';
 import { HoldStoreService } from '../holds/hold-store.service';
 
@@ -16,6 +17,7 @@ export class ExpiryService implements OnModuleDestroy {
   constructor(
     redis: Redis,
     private readonly store: HoldStoreService,
+    private readonly seatEvents: SeatEventsService,
   ) {
     this.subscriber = redis.duplicate({
       commandTimeout: undefined,
@@ -50,5 +52,7 @@ export class ExpiryService implements OnModuleDestroy {
     } catch (error) {
       this.logger.warn(`expiry cleanup failed for ${key}: ${reasonOf(error)}`);
     }
+
+    this.seatEvents.emitReleased(expired.eventId, [expired.seatId]);
   }
 }

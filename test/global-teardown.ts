@@ -3,7 +3,7 @@ import Redis from 'ioredis';
 const SAMPLE_SIZE = 20;
 
 const RANGE_OWNERS =
-  'consumer 300000-390000, auth 400000-490000, sold-cache 500000-590000, ' +
+  'gateway 200000-290000, consumer 300000-390000, auth 400000-490000, sold-cache 500000-590000, ' +
   'expiry 600000-690000, holds 700000-790000, holds-concurrency 800000-890000, ' +
   'holds-redis 900000-990000';
 
