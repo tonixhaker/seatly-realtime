@@ -55,6 +55,7 @@ application, including `pnpm openapi`.
 | `REDIS_PORT` | yes | as above |
 | `RABBITMQ_URL` | yes | the readiness probe, and the consumer from milestone 05 |
 | `CORE_API_URL` | yes | warming `sold:{eventId}` from `seatly-api`; must carry an `http`/`https` scheme |
+| `WEB_ORIGIN` | yes | CORS on the HTTP routes and the socket.io handshake; a comma-separated list of exact browser origins such as `http://localhost:5173`, no `*`, no path or trailing slash |
 
 ### With Docker
 
@@ -65,6 +66,7 @@ docker run -d -p 3000:3000 \
   -e REDIS_HOST=host.docker.internal -e REDIS_PORT=6379 \
   -e RABBITMQ_URL=amqp://seatly:seatly@host.docker.internal:5672 \
   -e CORE_API_URL=http://host.docker.internal:8000 \
+  -e WEB_ORIGIN=http://localhost:5173 \
   seatly-realtime
 ```
 

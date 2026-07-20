@@ -186,6 +186,7 @@ describe('RabbitMQ consumer (e2e)', () => {
       REDIS_PORT: process.env.REDIS_PORT as string,
       RABBITMQ_URL: process.env.RABBITMQ_URL as string,
       CORE_API_URL: coreUrl,
+      WEB_ORIGIN: process.env.WEB_ORIGIN as string,
     };
 
     const moduleRef: TestingModule = await Test.createTestingModule({
