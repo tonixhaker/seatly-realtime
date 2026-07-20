@@ -8,6 +8,7 @@ const VALID_ENV = {
   REDIS_PORT: '6379',
   RABBITMQ_URL: 'amqp://seatly:seatly@127.0.0.1:5672',
   CORE_API_URL: 'http://127.0.0.1:8000',
+  WEB_ORIGIN: 'http://localhost:5173',
 };
 
 const startAppModule = async (): Promise<string> => {

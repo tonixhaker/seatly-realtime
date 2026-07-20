@@ -3,12 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { applyCors } from './cors';
 import { EnvConfig } from './env.schema';
 import { HttpExceptionFilter } from './http-exception.filter';
 import { buildOpenApiDocument } from './swagger';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  const config = app.get(ConfigService<EnvConfig, true>);
+  applyCors(app, config.get('WEB_ORIGIN'));
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
@@ -19,6 +22,6 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   SwaggerModule.setup('docs', app, buildOpenApiDocument(app));
   app.enableShutdownHooks([], { useProcessExit: true });
-  await app.listen(app.get(ConfigService<EnvConfig, true>).get('PORT'));
+  await app.listen(config.get('PORT'));
 }
 void bootstrap();

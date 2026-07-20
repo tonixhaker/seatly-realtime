@@ -126,10 +126,20 @@ jobs:
             -e REDIS_HOST=seatly-redis-ci -e REDIS_PORT=6379 \
             -e RABBITMQ_URL=amqp://seatly:seatly@seatly-rabbitmq-ci:5672 \
             -e CORE_API_URL=http://127.0.0.1:8000 \
+            -e WEB_ORIGIN=http://localhost:5173 \
             seatly-realtime:ci
 
       - name: Probe liveness
         run: curl --retry 20 --retry-delay 2 --retry-all-errors -fsS http://localhost:3000/health/live
+
+      - name: Require the web origin to pass a CORS preflight
+        run: |
+          headers=$(curl -fsS -i -X OPTIONS http://localhost:3000/holds \
+            -H 'Origin: http://localhost:5173' \
+            -H 'Access-Control-Request-Method: POST' \
+            -H 'Access-Control-Request-Headers: authorization,content-type,x-request-id')
+          echo "$headers"
+          echo "$headers" | grep -qi '^access-control-allow-origin: http://localhost:5173'
 
       - name: Probe readiness and require both dependencies
         run: |

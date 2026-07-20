@@ -3,3 +3,4 @@ process.env.REDIS_HOST ??= '127.0.0.1';
 process.env.REDIS_PORT ??= '6379';
 process.env.RABBITMQ_URL ??= 'amqp://seatly:seatly@127.0.0.1:5672';
 process.env.CORE_API_URL ??= 'http://127.0.0.1:9';
+process.env.WEB_ORIGIN ??= 'http://localhost:5173';

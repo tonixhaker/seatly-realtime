@@ -7,6 +7,7 @@ const COMPLETE = {
   REDIS_PORT: '6379',
   RABBITMQ_URL: 'amqp://seatly:seatly@rabbitmq:5672',
   CORE_API_URL: 'http://api:8000',
+  WEB_ORIGIN: 'http://localhost:5173',
 };
 
 const without = (key: string): Record<string, unknown> => {
@@ -24,6 +25,7 @@ describe('validateEnv', () => {
       REDIS_PORT: 6379,
       RABBITMQ_URL: 'amqp://seatly:seatly@rabbitmq:5672',
       CORE_API_URL: 'http://api:8000',
+      WEB_ORIGIN: ['http://localhost:5173'],
     });
   });
 
@@ -33,6 +35,7 @@ describe('validateEnv', () => {
     'REDIS_PORT',
     'RABBITMQ_URL',
     'CORE_API_URL',
+    'WEB_ORIGIN',
   ])('refuses to start without %s and names it in the message', (variable) => {
     expect(() => validateEnv(without(variable))).toThrow(variable);
   });
@@ -58,6 +61,24 @@ describe('validateEnv', () => {
       validateEnv({ ...COMPLETE, CORE_API_URL: 'api:8000' }),
     ).toThrow('CORE_API_URL');
   });
+
+  it('splits WEB_ORIGIN into a trimmed list of exact origins', () => {
+    expect(
+      validateEnv({
+        ...COMPLETE,
+        WEB_ORIGIN: ' http://localhost:5173 , https://seatly.test ',
+      }).WEB_ORIGIN,
+    ).toEqual(['http://localhost:5173', 'https://seatly.test']);
+  });
+
+  it.each(['*', '', ',', 'localhost:5173', 'http://localhost:5173/'])(
+    'rejects WEB_ORIGIN %j, which would match no browser origin or every one',
+    (value) => {
+      expect(() => validateEnv({ ...COMPLETE, WEB_ORIGIN: value })).toThrow(
+        'WEB_ORIGIN',
+      );
+    },
+  );
 
   it('tolerates unrelated environment variables, which the whole process env carries', () => {
     expect(() =>
