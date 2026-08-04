@@ -89,7 +89,6 @@
     ],
     "coverageDirectory": "../coverage",
     "testEnvironment": "node",
-    "passWithNoTests": true,
     "coverageThreshold": {
       "global": {
         "statements": 90,
