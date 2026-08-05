@@ -1,4 +1,4 @@
-FROM node:22.23.2-alpine AS builder
+FROM node:22.23.2-alpine AS test
 
 RUN npm install -g pnpm@10.29.3
 
@@ -7,6 +7,8 @@ WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
 
 RUN pnpm install --frozen-lockfile
+
+FROM test AS builder
 
 COPY . .
 
