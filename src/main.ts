@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { SwaggerModule } from '@nestjs/swagger';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { applyCors } from './cors';
 import { EnvConfig } from './env.schema';
@@ -9,7 +10,8 @@ import { HttpExceptionFilter } from './http-exception.filter';
 import { buildOpenApiDocument } from './swagger';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  app.useLogger(app.get(Logger));
   const config = app.get(ConfigService<EnvConfig, true>);
   applyCors(app, config.get('WEB_ORIGIN'));
   app.useGlobalPipes(

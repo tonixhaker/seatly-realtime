@@ -6,10 +6,12 @@ import { ExpiryModule } from './expiry/expiry.module';
 import { GatewayModule } from './gateway/gateway.module';
 import { HealthModule } from './health/health.module';
 import { HoldsModule } from './holds/holds.module';
+import { loggerModule } from './logging';
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true, validate: validateEnv }),
+    loggerModule,
     HealthModule,
     HoldsModule,
     ExpiryModule,
