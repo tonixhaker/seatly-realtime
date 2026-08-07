@@ -7,7 +7,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Channel, ChannelModel, ConsumeMessage, connect } from 'amqplib';
+import { PinoLogger, RunInContextOptions } from 'nestjs-pino';
 import { EnvConfig } from '../env.schema';
+import { REQUEST_ID } from '../logging';
 import { ConsumerService } from './consumer.service';
 import type { ConsumerTopology } from './topology';
 import { CONSUMER_TOPOLOGY, MAX_ATTEMPTS } from './topology';
@@ -21,6 +23,14 @@ const BINDINGS = ['order.*', 'event.published'];
 const reasonOf = (error: unknown): string =>
   error instanceof Error ? error.message : 'unknown error';
 
+const contextOf = (message: ConsumeMessage): RunInContextOptions => {
+  const header: unknown = message.properties.headers?.['x-request-id'];
+
+  return typeof header === 'string' && REQUEST_ID.test(header)
+    ? { bindings: { request_id: header } }
+    : {};
+};
+
 @Injectable()
 export class RabbitConsumer implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(RabbitConsumer.name);
@@ -33,6 +43,7 @@ export class RabbitConsumer implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly config: ConfigService<EnvConfig, true>,
     private readonly consumer: ConsumerService,
+    private readonly pino: PinoLogger,
     @Inject(CONSUMER_TOPOLOGY) private readonly topology: ConsumerTopology,
   ) {}
 
@@ -133,7 +144,10 @@ export class RabbitConsumer implements OnModuleInit, OnModuleDestroy {
       queue,
       (message) => {
         if (message !== null) {
-          void this.onMessage(channel, message);
+          void this.pino.runInContext(
+            () => this.onMessage(channel, message),
+            contextOf(message),
+          );
         }
       },
       { noAck: false },
@@ -144,10 +158,21 @@ export class RabbitConsumer implements OnModuleInit, OnModuleDestroy {
     channel: Channel,
     message: ConsumeMessage,
   ): Promise<void> {
+    const routingKey = message.fields.routingKey;
+
+    this.logger.log(
+      `received ${routingKey} ${String(message.properties.messageId)}`,
+    );
+
     const outcome = await this.consumer.handle(message.content);
 
     if (outcome.status === 'ok' || outcome.status === 'duplicate') {
       this.attempts.delete(outcome.eventId);
+      this.logger.log(
+        outcome.status === 'ok'
+          ? `applied ${routingKey} ${outcome.eventId}`
+          : `skipped duplicate ${routingKey} ${outcome.eventId}`,
+      );
       channel.ack(message);
       return;
     }

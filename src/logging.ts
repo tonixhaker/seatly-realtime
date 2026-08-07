@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { LoggerModule } from 'nestjs-pino';
 
-const REQUEST_ID =
+export const REQUEST_ID =
   /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
 const UNLOGGED_PATHS = ['/health', '/health/live'];
