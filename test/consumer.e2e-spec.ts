@@ -4,6 +4,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
 import { Channel, ChannelModel, connect } from 'amqplib';
 import Redis from 'ioredis';
+import { Logger } from 'nestjs-pino';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { ConsumerModule } from '../src/consumer/consumer.module';
@@ -13,6 +14,7 @@ import { validateEnv } from '../src/env.schema';
 import { HoldStoreService } from '../src/holds/hold-store.service';
 import { HoldsModule } from '../src/holds/holds.module';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
+import { loggerModule } from '../src/logging';
 import { SoldCacheService } from '../src/sold/sold-cache.service';
 import { CoreStub } from './support/core-stub';
 import {
@@ -78,6 +80,13 @@ const paymentFailed = (eventId: number, seatIds: number[], sessionId: string) =>
 const eventPublished = (eventId: number, seatIds: number[]) =>
   envelopeFor('event.published', { event_id: eventId, seat_ids: seatIds });
 
+interface LogLine {
+  level: number;
+  msg: string;
+  context?: string;
+  request_id?: string;
+}
+
 describe('RabbitMQ consumer (e2e)', () => {
   let app: INestApplication<App>;
   let redis: Redis;
@@ -92,8 +101,20 @@ describe('RabbitMQ consumer (e2e)', () => {
   const publishedIds: string[] = [];
   const touchedEvents: number[] = [];
   const touchedSessions: string[] = [];
+  const captured: string[] = [];
+  let stdout: jest.SpiedFunction<typeof process.stdout.write>;
 
   const http = () => app.getHttpServer();
+
+  const logLines = (): LogLine[] =>
+    captured
+      .join('')
+      .split('\n')
+      .filter((line) => line.startsWith('{'))
+      .map((line) => JSON.parse(line) as LogLine);
+
+  const linesMentioning = (text: string): LogLine[] =>
+    logLines().filter((line) => line.msg.includes(text));
 
   const waitFor = async (
     what: string,
@@ -123,6 +144,7 @@ describe('RabbitMQ consumer (e2e)', () => {
   const publish = (
     routingKey: string,
     envelope: Record<string, unknown>,
+    headers?: Record<string, unknown>,
   ): string => {
     const id = envelope.event_id as string;
 
@@ -131,7 +153,12 @@ describe('RabbitMQ consumer (e2e)', () => {
       topology.exchange,
       routingKey,
       Buffer.from(JSON.stringify(envelope)),
-      { contentType: 'application/json', deliveryMode: 2, messageId: id },
+      {
+        contentType: 'application/json',
+        deliveryMode: 2,
+        messageId: id,
+        headers,
+      },
     );
 
     return id;
@@ -175,7 +202,21 @@ describe('RabbitMQ consumer (e2e)', () => {
     expect(outcome.ok).toBe(true);
   };
 
+  const awaitLogged = (id: string, text: string) =>
+    waitFor(
+      `a "${text}" log line for ${id}`,
+      () => Promise.resolve(linesMentioning(`${text} order.paid ${id}`).length),
+      (value) => value === 1,
+    );
+
   beforeAll(async () => {
+    stdout = jest
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        captured.push(String(chunk));
+        return true;
+      });
+
     core = new CoreStub();
     const coreUrl = await core.start();
 
@@ -195,6 +236,7 @@ describe('RabbitMQ consumer (e2e)', () => {
           isGlobal: true,
           validate: () => validateEnv(env),
         }),
+        loggerModule,
         ConsumerModule,
         HoldsModule,
       ],
@@ -209,7 +251,8 @@ describe('RabbitMQ consumer (e2e)', () => {
       })
       .compile();
 
-    app = moduleRef.createNestApplication<App>();
+    app = moduleRef.createNestApplication<App>({ bufferLogs: true });
+    app.useLogger(app.get(Logger));
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
@@ -302,6 +345,188 @@ describe('RabbitMQ consumer (e2e)', () => {
     await app.close();
     await core.stop();
     await deleteTopology(topology);
+    stdout.mockRestore();
+  });
+
+  describe('request id', () => {
+    it('carries the x-request-id header on every line logged for the message', async () => {
+      const requestId = randomUUID();
+      const id = publish('order.paid', orderPaid(eventId, [1]), {
+        'x-request-id': requestId,
+      });
+
+      await awaitLogged(id, 'applied');
+
+      const lines = linesMentioning(id);
+
+      expect(lines.map((line) => line.msg)).toEqual([
+        `received order.paid ${id}`,
+        `applied order.paid ${id}`,
+      ]);
+      expect(lines.every((line) => line.request_id === requestId)).toBe(true);
+    });
+
+    it('never lets one message log another message id, or an id when there is no header', async () => {
+      const first = randomUUID();
+      const second = randomUUID();
+      const withFirst = publish('order.paid', orderPaid(eventId, [1]), {
+        'x-request-id': first,
+      });
+      const without = publish('order.paid', orderPaid(eventId, [2]));
+      const withSecond = publish('order.paid', orderPaid(eventId, [3]), {
+        'x-request-id': second,
+      });
+
+      await awaitLogged(withSecond, 'applied');
+
+      const idsOf = (id: string) =>
+        linesMentioning(id).map((line) => line.request_id);
+
+      expect(idsOf(withFirst)).toEqual([first, first]);
+      expect(idsOf(without)).toEqual([undefined, undefined]);
+      expect(
+        linesMentioning(without).some((line) => 'request_id' in line),
+      ).toBe(false);
+      expect(idsOf(withSecond)).toEqual([second, second]);
+    });
+
+    it('processes a message whose header is not a uuid and never logs the value', async () => {
+      const id = publish('order.paid', orderPaid(eventId, [1]), {
+        'x-request-id': 'not-a-uuid',
+      });
+
+      await awaitConsumed(id);
+      await awaitLogged(id, 'applied');
+
+      expect(await redis.smembers(`sold:${eventId}`)).toEqual(['1']);
+      expect(linesMentioning(id).some((line) => 'request_id' in line)).toBe(
+        false,
+      );
+      expect(captured.join('')).not.toContain('not-a-uuid');
+    });
+
+    it('carries an uppercase uuid header verbatim', async () => {
+      const requestId = randomUUID().toUpperCase();
+      const id = publish('order.paid', orderPaid(eventId, [1]), {
+        'x-request-id': requestId,
+      });
+
+      await awaitLogged(id, 'applied');
+
+      expect(linesMentioning(id).map((line) => line.request_id)).toEqual([
+        requestId,
+        requestId,
+      ]);
+    });
+
+    it('never logs a header that only contains a uuid inside a longer value', async () => {
+      const inner = randomUUID();
+      const padded = publish('order.paid', orderPaid(eventId, [1]), {
+        'x-request-id': `${inner}${'a'.repeat(5000)}`,
+      });
+      const prefixed = publish('order.paid', orderPaid(eventId, [2]), {
+        'x-request-id': ` ${inner}`,
+      });
+
+      await awaitLogged(padded, 'applied');
+      await awaitLogged(prefixed, 'applied');
+
+      expect(
+        [...linesMentioning(padded), ...linesMentioning(prefixed)].some(
+          (line) => 'request_id' in line,
+        ),
+      ).toBe(false);
+      expect(captured.join('')).not.toContain(inner);
+    });
+
+    it('never logs a uuid delivered as bytes, an array or a number', async () => {
+      const inner = randomUUID();
+      const ids = [Buffer.from(inner), [inner], 42].map((header, index) =>
+        publish('order.paid', orderPaid(eventId, [index + 1]), {
+          'x-request-id': header,
+        }),
+      );
+
+      for (const id of ids) {
+        await awaitLogged(id, 'applied');
+      }
+
+      expect(await redis.scard(`sold:${eventId}`)).toBe(3);
+      expect(
+        ids
+          .flatMap((id) => linesMentioning(id))
+          .some((line) => 'request_id' in line),
+      ).toBe(false);
+    });
+
+    it('logs a duplicate delivery as skipped under its own request id', async () => {
+      const envelope = orderPaid(eventId, [1]);
+      const firstId = randomUUID();
+      const secondId = randomUUID();
+      const id = publish('order.paid', envelope, { 'x-request-id': firstId });
+
+      await awaitLogged(id, 'applied');
+
+      publish('order.paid', envelope, { 'x-request-id': secondId });
+
+      await awaitLogged(id, 'skipped duplicate');
+
+      const skipped = linesMentioning(`skipped duplicate order.paid ${id}`);
+
+      expect(skipped).toEqual([
+        expect.objectContaining({ request_id: secondId }),
+      ]);
+    });
+
+    it('carries the id on every retry and on the dead-letter line', async () => {
+      failingEventId = eventId;
+
+      const requestId = randomUUID();
+      const id = publish('order.paid', orderPaid(eventId, [1]), {
+        'x-request-id': requestId,
+      });
+
+      await waitFor(
+        'the poison message to reach the dead-letter queue',
+        () => depthOf(topology.deadLetterQueue),
+        (value) => value === 1,
+      );
+      await channel.get(topology.deadLetterQueue, { noAck: true });
+
+      const lines = linesMentioning(id);
+      const levels = lines.map((line) => line.level);
+
+      expect(levels.filter((level) => level === 40)).toHaveLength(2);
+      expect(levels.filter((level) => level === 50)).toHaveLength(1);
+      expect(levels.filter((level) => level === 30)).toHaveLength(3);
+      expect(lines.every((line) => line.request_id === requestId)).toBe(true);
+    });
+
+    it('reaches the lines ConsumerService logs itself', async () => {
+      const requestId = randomUUID();
+      const envelope = paymentFailed(eventId, [1], randomUUID());
+      const orderId = (envelope.payload as { order_id: string }).order_id;
+      const id = publish('order.payment_failed', envelope, {
+        'x-request-id': requestId,
+      });
+
+      await awaitConsumed(id);
+
+      const line = await waitFor(
+        'the ConsumerService payment_failed line',
+        () =>
+          Promise.resolve(
+            logLines().find(
+              (entry) =>
+                entry.context === 'ConsumerService' &&
+                entry.msg.includes(orderId),
+            ),
+          ),
+        (value) => value !== undefined,
+      );
+
+      expect(line).toEqual(expect.objectContaining({ request_id: requestId }));
+    });
   });
 
   describe('order.paid', () => {
