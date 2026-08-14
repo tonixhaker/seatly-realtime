@@ -13,8 +13,8 @@ The REST surface of this service is specified separately, in `docs/openapi.json`
 are complementary: state is changed over REST and observed over the socket (§9).
 
 `POST /holds`, `DELETE /holds`, `GET /events/{id}/live-seats` and
-`GET /internal/holds/validate` all move real Redis state since milestone 04, and the socket
-described here is implemented as of milestone 05. The browser client is milestone 06.
+`GET /internal/holds/validate` all move real Redis state, and the socket described here is
+implemented and consumed by the `seatly-web` browser client.
 
 ## 2. Connection
 

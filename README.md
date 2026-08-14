@@ -31,10 +31,23 @@ Ops — `GET /health/live` answers liveness without touching a dependency, `GET 
 answers readiness by pinging Redis and RabbitMQ and returns `503` when either is
 unreachable. Both are unauthenticated and absent from the OpenAPI document.
 
-## Running it
+## Running standalone
 
-Needs Node 22, pnpm, RabbitMQ, a reachable `seatly-api` for token validation, and Redis 7
-started with `notify-keyspace-events Ex` — without that flag hold expiry goes unnoticed.
+Needs Node 22 and pnpm, plus three things around it, each at an environment variable:
+
+- Redis 7 at `REDIS_HOST` / `REDIS_PORT`, started with `notify-keyspace-events Ex` —
+  without that flag hold expiry goes unnoticed.
+- RabbitMQ at `RABBITMQ_URL`, where `seatly-api` publishes its domain events.
+- [seatly-api](https://github.com/tonixhaker/seatly-api) at `CORE_API_URL`, for bearer-token
+  validation and for warming the sold-seat cache.
+
+Throwaway Redis and RabbitMQ matching `.env.example`:
+
+```bash
+docker run -d --name seatly-redis -p 6379:6379 redis:7 redis-server --notify-keyspace-events Ex
+docker run -d --name seatly-rabbitmq -p 5672:5672 \
+  -e RABBITMQ_DEFAULT_USER=seatly -e RABBITMQ_DEFAULT_PASS=seatly rabbitmq:3-management
+```
 
 ```bash
 pnpm install
@@ -50,11 +63,11 @@ application, including `pnpm openapi`.
 | Variable | Required | Consumed by |
 |---|---|---|
 | `PORT` | defaults to `3000` | the HTTP server |
-| `INTERNAL_TOKEN` | yes | the `X-Internal-Token` guard on `/internal/*` |
-| `REDIS_HOST` | yes | the readiness probe, and holds from milestone 04 |
+| `INTERNAL_TOKEN` | yes | the `X-Internal-Token` guard on `/internal/*`; must equal `seatly-api`'s `INTERNAL_TOKEN` |
+| `REDIS_HOST` | yes | hold storage and expiry, and the readiness probe |
 | `REDIS_PORT` | yes | as above |
-| `RABBITMQ_URL` | yes | the readiness probe, and the consumer from milestone 05 |
-| `CORE_API_URL` | yes | warming `sold:{eventId}` from `seatly-api`; must carry an `http`/`https` scheme |
+| `RABBITMQ_URL` | yes | the domain-event consumer, and the readiness probe |
+| `CORE_API_URL` | yes | token validation and warming `sold:{eventId}` from `seatly-api`; must carry an `http`/`https` scheme |
 | `WEB_ORIGIN` | yes | CORS on the HTTP routes and the socket.io handshake; a comma-separated list of exact browser origins such as `http://localhost:5173`, no `*`, no path or trailing slash |
 
 ### With Docker
@@ -76,23 +89,11 @@ time. Its own `HEALTHCHECK` polls `/health/live`, so a container started without
 RabbitMQ still reports healthy; readiness is what `/health` answers. `docker stop` shuts
 the process down gracefully rather than waiting for the timeout.
 
-### Tests
+## Tests
 
-`pnpm test` runs the unit specs. `pnpm test:e2e` needs a reachable Redis and RabbitMQ for
-its healthy-readiness cases:
-
-```bash
-docker run -d -p 6379:6379 redis:7 redis-server --notify-keyspace-events Ex
-docker run -d -p 5672:5672 --user rabbitmq \
-  -e RABBITMQ_DEFAULT_USER=seatly -e RABBITMQ_DEFAULT_PASS=seatly rabbitmq:3-management
-```
-
-## Status
-
-Work in progress. Holds, hold expiry, the live seat state, the RabbitMQ consumer and the
-WebSocket gateway are all implemented. The browser client that consumes the socket is
-milestone 06.
+`pnpm test` runs the unit specs and needs nothing running. `pnpm test:e2e` needs the Redis
+and RabbitMQ above for its healthy-readiness cases.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
