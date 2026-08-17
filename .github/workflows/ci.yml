@@ -59,6 +59,8 @@ jobs:
 
       - name: Compile TypeScript
         run: pnpm build
+      - name: Type-check the sources and every spec
+        run: pnpm exec tsc --noEmit -p tsconfig.json
 
       - name: Run the unit specs and gate coverage of the logic layer
         run: pnpm test:cov

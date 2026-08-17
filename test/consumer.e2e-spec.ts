@@ -10,7 +10,7 @@ import { App } from 'supertest/types';
 import { ConsumerModule } from '../src/consumer/consumer.module';
 import { CONSUMER_TOPOLOGY } from '../src/consumer/topology';
 import { SeatEventsService } from '../src/events/seat-events.service';
-import { validateEnv } from '../src/env.schema';
+import { EnvConfig, validateEnv } from '../src/env.schema';
 import { HoldStoreService } from '../src/holds/hold-store.service';
 import { HoldsModule } from '../src/holds/holds.module';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
@@ -245,13 +245,13 @@ describe('RabbitMQ consumer (e2e)', () => {
       .useValue(topology)
       .overrideProvider(SoldCacheService)
       .useFactory({
-        factory: (client: Redis, config: ConfigService) =>
+        factory: (client: Redis, config: ConfigService<EnvConfig, true>) =>
           new FlakySoldCache(client, config),
         inject: [Redis, ConfigService],
       })
       .compile();
 
-    app = moduleRef.createNestApplication<App>({ bufferLogs: true });
+    app = moduleRef.createNestApplication({ bufferLogs: true });
     app.useLogger(app.get(Logger));
     app.useGlobalPipes(
       new ValidationPipe({

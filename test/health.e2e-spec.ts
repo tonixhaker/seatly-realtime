@@ -52,7 +52,7 @@ const buildApp = async (
   }
 
   const moduleRef: TestingModule = await builder.compile();
-  const app: INestApplication<App> = moduleRef.createNestApplication<App>();
+  const app: INestApplication<App> = moduleRef.createNestApplication();
   app.useGlobalFilters(new HttpExceptionFilter());
   await app.init();
   return app;
@@ -205,7 +205,7 @@ describe('Health probes (e2e)', () => {
         .useValue(topology)
         .compile();
 
-      app = moduleRef.createNestApplication<App>();
+      app = moduleRef.createNestApplication();
       app.useGlobalPipes(
         new ValidationPipe({
           whitelist: true,

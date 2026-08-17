@@ -34,7 +34,7 @@ const buildApp = async (coreUrl: string): Promise<INestApplication<App>> => {
     ],
   }).compile();
 
-  const app: INestApplication<App> = moduleRef.createNestApplication<App>();
+  const app: INestApplication<App> = moduleRef.createNestApplication();
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

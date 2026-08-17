@@ -73,7 +73,7 @@ describe('Structured logging and request id (e2e)', () => {
       .useValue(topology)
       .compile();
 
-    app = moduleRef.createNestApplication<App>({ bufferLogs: true });
+    app = moduleRef.createNestApplication({ bufferLogs: true });
     app.useLogger(app.get(Logger));
     app.useGlobalPipes(
       new ValidationPipe({
