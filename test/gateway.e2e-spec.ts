@@ -193,7 +193,7 @@ describe('WebSocket gateway (e2e)', () => {
       .useValue(topology)
       .compile();
 
-    app = moduleRef.createNestApplication<App>();
+    app = moduleRef.createNestApplication();
     app.useGlobalPipes(
       new ValidationPipe({
         whitelist: true,
