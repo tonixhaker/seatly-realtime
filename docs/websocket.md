@@ -92,7 +92,7 @@ Four messages, and only four.
 | Event | Payload |
 |---|---|
 | `snapshot` | `{ event_id, held: number[], sold: number[] }` |
-| `seat.held` | `{ event_id, seat_ids: number[], session_id }` |
+| `seat.held` | `{ event_id, seat_ids: number[] }` |
 | `seat.released` | `{ event_id, seat_ids: number[] }` |
 | `seat.sold` | `{ event_id, seat_ids: number[] }` |
 
@@ -102,7 +102,6 @@ Types, everywhere in this protocol:
 |---|---|---|
 | `event_id` | integer | `>= 1` |
 | `seat_ids`, `held`, `sold` | array of integer | each `>= 1`, unique within the array |
-| `session_id` | string | UUID, issued by the web client |
 
 No field is ever `null` and no field is ever absent. Seat id order carries no meaning and is
 not stable — treat every seat id array here as a set. The only arrays that may be empty are
@@ -141,7 +140,7 @@ derives from a single hold request, and the REST surface caps `seat_ids` at 50.
 
 ### `seat.held`
 
-`{ event_id, seat_ids: number[], session_id }`
+`{ event_id, seat_ids: number[] }`
 
 **Emitted:** when a session acquires a hold — the broadcast that follows a successful
 `POST /holds`. A hold lives for ten minutes.
@@ -149,15 +148,14 @@ derives from a single hold request, and the REST surface caps `seat_ids` at 50.
 `seat_ids` carries the seats of **that request only**, never the session's full hold set. A
 cumulative payload would force every observer to diff it against what they already had.
 
-**Client action:** add `seat_ids` to the held set. Compare `session_id` against the
-`session_id` the client issued for itself: equal means these are the client's own holds, in
-its own cart; different means the seats are taken by somebody else.
+**Client action:** add `seat_ids` to the held set. The payload does not say who took the
+hold, the same as the other three messages. A client recognises its own holds from its own
+cart: the seat ids it posted in `POST /holds` and got a 201 for.
 
-**`seat.held` carries `session_id` and the other three messages do not.** That asymmetry is
-the point of the field. `seat.held` is the only event whose meaning depends on who caused
-it. A release and a sale look identical from every client's point of view — a freed seat is
-free for everyone and a sold seat is sold for everyone — so neither is scoped to a session
-and neither needs the field.
+**`session_id` is a capability secret.** It is the only proof that a caller owns a hold —
+releasing and checking out compare it and nothing else — so it is never broadcast in any
+message on this socket, never logged, and rotates when the user logs out. A client sends it
+only in its own REST calls (§9) and never expects to receive one.
 
 ### `seat.released`
 
@@ -280,11 +278,11 @@ both.
 
 - **Authentication and authorisation of the socket connection.** The handshake carries no
   token and the server checks nothing at connect time: anyone who can reach the service can
-  join any `event:{id}` room and watch its held and sold seat ids. Note the consequence —
-  `session_id` is broadcast in `seat.held` to everyone in the room, so it is an identifier
-  and not a secret, and it authorises nothing by itself. The `X-Internal-Token` guard on the
-  REST surface covers `/internal/*` only and has nothing to do with the socket. Socket
-  authentication is a later decision.
+  join any `event:{id}` room and watch its held and sold seat ids — never who holds them.
+  `session_id` is a secret and is not carried on the socket in either direction, so
+  watching a room reveals no hold owner and grants no power over any hold. The
+  `X-Internal-Token` guard on the REST surface covers `/internal/*` only and has nothing to
+  do with the socket. Socket authentication is a later decision.
 - **Any room other than `event:{id}`.** No per-session room, no per-user room, no global
   broadcast channel. A feature that needs one extends this document first.
 - **Server-to-client errors.** There are four server-to-client events and no fifth. A failure

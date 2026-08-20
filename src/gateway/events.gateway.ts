@@ -52,11 +52,10 @@ export class EventsGateway implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.seatEvents.onHeld(({ eventId, seatIds, sessionId }) =>
+    this.seatEvents.onHeld(({ eventId, seatIds }) =>
       this.broadcast('seat.held', eventId, seatIds, {
         event_id: eventId,
         seat_ids: seatIds,
-        session_id: sessionId,
       }),
     );
 
