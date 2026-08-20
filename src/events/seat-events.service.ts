@@ -4,7 +4,6 @@ import { EventEmitter } from 'node:events';
 export interface SeatsHeld {
   eventId: number;
   seatIds: number[];
-  sessionId: string;
 }
 
 export interface SeatsReleased {
@@ -25,8 +24,8 @@ const SOLD = 'seat.sold';
 
 @Injectable()
 export class SeatEventsService extends EventEmitter {
-  emitHeld(eventId: number, seatIds: number[], sessionId: string): void {
-    this.emit(HELD, { eventId, seatIds, sessionId });
+  emitHeld(eventId: number, seatIds: number[]): void {
+    this.emit(HELD, { eventId, seatIds });
   }
 
   onHeld(listener: (held: SeatsHeld) => void): this {

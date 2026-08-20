@@ -4,8 +4,6 @@ import { SeatEventsService } from '../events/seat-events.service';
 import { HoldsService } from '../holds/holds.service';
 import { EventsGateway, roomOf } from './events.gateway';
 
-const SESSION = '0b5f9d6e-3b4a-4c2d-8e1f-7a6b5c4d3e2f';
-
 const EVENT = 42;
 
 interface FakeSocket {
@@ -128,15 +126,16 @@ describe('EventsGateway', () => {
   });
 
   describe('broadcasts', () => {
-    it('sends seat.held to the event room, carrying the holder session', () => {
-      seatEvents.emitHeld(EVENT, [1, 2], SESSION);
+    it('sends seat.held to the event room without a session', () => {
+      seatEvents.emitHeld(EVENT, [1, 2]);
 
       expect(server.to).toHaveBeenCalledWith('event:42');
       expect(room.emit).toHaveBeenCalledWith('seat.held', {
         event_id: EVENT,
         seat_ids: [1, 2],
-        session_id: SESSION,
       });
+      const [[, payload]] = room.emit.mock.calls as [string, object][];
+      expect(Object.keys(payload).sort()).toEqual(['event_id', 'seat_ids']);
     });
 
     it('sends seat.released to the event room without a session', () => {
@@ -160,7 +159,7 @@ describe('EventsGateway', () => {
     });
 
     it('never broadcasts globally, because one event must not see another', () => {
-      seatEvents.emitHeld(EVENT, [1], SESSION);
+      seatEvents.emitHeld(EVENT, [1]);
       seatEvents.emitReleased(EVENT, [1]);
       seatEvents.emitSold(EVENT, [1]);
 
@@ -168,7 +167,7 @@ describe('EventsGateway', () => {
     });
 
     it.each([
-      ['seat.held', () => seatEvents.emitHeld(EVENT, [], SESSION)],
+      ['seat.held', () => seatEvents.emitHeld(EVENT, [])],
       ['seat.released', () => seatEvents.emitReleased(EVENT, [])],
       ['seat.sold', () => seatEvents.emitSold(EVENT, [])],
     ])('drops an empty %s rather than framing it', (_name, emit) => {

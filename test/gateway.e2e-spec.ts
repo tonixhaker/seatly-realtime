@@ -388,14 +388,14 @@ describe('WebSocket gateway (e2e)', () => {
       expect(
         framesOf(client, 'seat.held').map((frame) => frame.payload),
       ).toEqual([
-        { event_id: eventId, seat_ids: [1], session_id: mine },
-        { event_id: otherEventId, seat_ids: [2], session_id: mine },
+        { event_id: eventId, seat_ids: [1] },
+        { event_id: otherEventId, seat_ids: [2] },
       ]);
     });
   });
 
   describe('seat.held', () => {
-    it('reaches every socket in the room with the holder session id', async () => {
+    it('reaches every socket in the room without the holder session id', async () => {
       await seedSold(eventId, []);
 
       const first = await connectClient();
@@ -409,15 +409,17 @@ describe('WebSocket gateway (e2e)', () => {
       const expected = {
         event_id: eventId,
         seat_ids: [3, 7],
-        session_id: theirs,
       };
 
-      expect(framesOf(first, 'seat.held').map((f) => f.payload)).toEqual([
-        expected,
-      ]);
-      expect(framesOf(second, 'seat.held').map((f) => f.payload)).toEqual([
-        expected,
-      ]);
+      for (const listener of [first, second]) {
+        const payloads = framesOf(listener, 'seat.held').map((f) => f.payload);
+
+        expect(payloads).toEqual([expected]);
+        expect(Object.keys(payloads[0]).sort()).toEqual([
+          'event_id',
+          'seat_ids',
+        ]);
+      }
     });
 
     it('carries the seats of that request, not the session hold set', async () => {
@@ -432,7 +434,7 @@ describe('WebSocket gateway (e2e)', () => {
       await sleep(SETTLE_MS);
 
       expect(framesOf(client, 'seat.held').map((f) => f.payload)).toEqual([
-        { event_id: eventId, seat_ids: [1, 2, 3], session_id: mine },
+        { event_id: eventId, seat_ids: [1, 2, 3] },
       ]);
       expect((await liveSeats(eventId)).held).toEqual([1, 2, 3, 9]);
     });
@@ -449,7 +451,7 @@ describe('WebSocket gateway (e2e)', () => {
       await sleep(SETTLE_MS);
 
       expect(framesOf(client, 'seat.held').map((f) => f.payload)).toEqual([
-        { event_id: eventId, seat_ids: [1], session_id: mine },
+        { event_id: eventId, seat_ids: [1] },
       ]);
     });
 
@@ -752,19 +754,19 @@ describe('WebSocket gateway (e2e)', () => {
       await sleep(SETTLE_MS);
 
       expect(framesOf(client, 'seat.held').map((f) => f.payload)).toEqual([
-        { event_id: eventId, seat_ids: [3], session_id: mine },
+        { event_id: eventId, seat_ids: [3] },
       ]);
     });
   });
 
   describe('the shape of the wire', () => {
-    it('carries session_id on seat.held and on nothing else', async () => {
+    it('carries session_id on no message', async () => {
       await seedSold(eventId, [9]);
-      await hold(eventId, [3, 7], mine);
 
       const client = await connectClient();
       await join(client, { event_id: eventId });
 
+      await hold(eventId, [3, 7], mine);
       await release(eventId, [7], mine);
       publish(orderPaid(eventId, [3]));
 
@@ -772,13 +774,10 @@ describe('WebSocket gateway (e2e)', () => {
       await sleep(SETTLE_MS);
 
       for (const frame of client.frames) {
-        if (frame.name === 'seat.held') {
-          expect(frame.payload).toHaveProperty('session_id');
-        } else {
-          expect(frame.payload).not.toHaveProperty('session_id');
-        }
+        expect(frame.payload).not.toHaveProperty('session_id');
       }
 
+      expect(framesOf(client, 'seat.held')).toHaveLength(1);
       expect(framesOf(client, 'seat.released')).toHaveLength(1);
       expect(framesOf(client, 'seat.sold')).toHaveLength(1);
     });

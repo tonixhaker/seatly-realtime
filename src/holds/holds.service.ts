@@ -30,7 +30,7 @@ export class HoldsService {
       });
     }
 
-    this.seatEvents.emitHeld(dto.event_id, dto.seat_ids, dto.session_id);
+    this.seatEvents.emitHeld(dto.event_id, dto.seat_ids);
   }
 
   async release(dto: HoldSeatsDto): Promise<void> {
