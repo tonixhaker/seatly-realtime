@@ -1,3 +1,4 @@
+import { IncomingMessage } from 'node:http';
 import { INestApplication } from '@nestjs/common';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { ServerOptions } from 'socket.io';
@@ -14,6 +15,14 @@ class OriginIoAdapter extends IoAdapter {
     return super.createIOServer(port, {
       ...options,
       cors: { origin: this.origins },
+      allowRequest: (
+        req: IncomingMessage,
+        callback: (err: string | null | undefined, success: boolean) => void,
+      ) => {
+        const origin = req.headers.origin;
+        const allowed = origin === undefined || this.origins.includes(origin);
+        callback(allowed ? null : 'origin not allowed', allowed);
+      },
     });
   }
 }

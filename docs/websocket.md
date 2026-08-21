@@ -26,6 +26,7 @@ implemented and consumed by the `seatly-web` browser client.
 | Origin | `http://<host>:<port>`, port from `PORT`, `3000` in local development |
 | Client URL | `http://localhost:3000/events` in local development |
 | Handshake auth | none — see §10 |
+| Origin gate | `Origin` absent or in `WEB_ORIGIN` — anything else is refused at the handshake |
 
 Transport negotiation stays at the socket.io default: HTTP long-polling first, upgraded to
 WebSocket. Neither side pins a transport.
@@ -38,9 +39,21 @@ have an envelope. Do not add one here by analogy.
 **Field naming is `snake_case`**, the same as the REST surface and the RabbitMQ payloads.
 No field in this protocol is `camelCase`.
 
-The browser client is served from a different origin in development, so the socket.io
-server must allow that origin. Which origins are allowed is deployment configuration, not
-protocol, and is not specified here.
+**Allowed origins are enforced at the handshake, on both transports.** The browser client
+is served from a different origin, so the server keeps a list of allowed origins — the
+`WEB_ORIGIN` deployment setting, which is not specified here. Every handshake (a request
+without a `sid`) is checked against it before any session exists:
+
+- **No `Origin` header — accepted.** Non-browser clients (the smoke script, `scripts/demo.mjs`,
+  the e2e tests) send none, and a browser always does.
+- **`Origin` exactly equal to one of the allowed origins — accepted.** Exact string match:
+  `http://127.0.0.1:5173` is not `http://localhost:5173`.
+- **Any other `Origin`, including an empty one and `null` — refused.** A long-polling
+  handshake answers `403` with no `sid`; a WebSocket-transport handshake is not upgraded
+  (`400`, never `101`).
+
+A long-polling session's later upgrade to WebSocket carries the `sid` it was given, and is
+not checked again: a refused origin never obtained one.
 
 ## 3. Rooms
 
@@ -276,19 +289,21 @@ both.
 
 ## 10. Not covered here
 
-- **Authentication and authorisation of the socket connection.** The handshake carries no
-  token and the server checks nothing at connect time: anyone who can reach the service can
-  join any `event:{id}` room and watch its held and sold seat ids — never who holds them.
-  `session_id` is a secret and is not carried on the socket in either direction, so
-  watching a room reveals no hold owner and grants no power over any hold. The
-  `X-Internal-Token` guard on the REST surface covers `/internal/*` only and has nothing to
-  do with the socket. Socket authentication is a later decision.
+- **Authentication and authorisation of the socket connection — deliberately absent.** The
+  handshake carries no token; the only check at connect time is the origin gate of §2.
+  Anyone who can reach the port without an `Origin`, or with an allowed one, can join any
+  `event:{id}` room and watch its held and sold seat ids — never who holds them. That is
+  acceptable because no delta carries `session_id`: it is a secret, not carried on the
+  socket in either direction, so watching a room reveals no hold owner and grants no power
+  over any hold. The `X-Internal-Token` guard on the REST surface covers `/internal/*` only
+  and has nothing to do with the socket.
 - **Any room other than `event:{id}`.** No per-session room, no per-user room, no global
   broadcast channel. A feature that needs one extends this document first.
 - **Server-to-client errors.** There are four server-to-client events and no fifth. A failure
   is reported by the REST call that caused it, never over the socket.
 - **Delivery guarantees beyond the above.** No redelivery, no replay buffer, no message ids.
-- **Allowed origins and the rest of the deployment configuration.**
+- **The list of allowed origins and the rest of the deployment configuration.** How the
+  list is applied is §2.
 - **Broadcasting across more than one server instance.** The protocol on the wire is the
   same; how the fan-out is achieved is not specified here.
 - **Rate limiting of `join`.** Long-lived connections are exempt from the per-request
