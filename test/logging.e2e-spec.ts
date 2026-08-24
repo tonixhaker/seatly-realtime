@@ -20,6 +20,7 @@ interface LogLine {
   request_id?: string;
   context?: string;
   res?: { statusCode: number };
+  req?: { method: string; url: string };
 }
 
 const topology = throwawayTopology('logging');
@@ -51,10 +52,19 @@ describe('Structured logging and request id (e2e)', () => {
     throw new Error(`no request completed line for ${id}`);
   };
 
-  const validate = () =>
+  const rawLinesOf = (id: string): string[] =>
+    captured
+      .join('')
+      .split('\n')
+      .filter(
+        (line) =>
+          line !== '' && (JSON.parse(line) as LogLine).request_id === id,
+      );
+
+  const validate = (sessionId: string = randomUUID()) =>
     request(http())
       .get(
-        `/internal/holds/validate?event_id=1&seat_ids=1&session_id=${randomUUID()}`,
+        `/internal/holds/validate?event_id=1&seat_ids=1&session_id=${sessionId}`,
       )
       .set('X-Internal-Token', process.env.INTERNAL_TOKEN as string);
 
@@ -138,6 +148,42 @@ describe('Structured logging and request id (e2e)', () => {
         request_id: id,
       }),
     );
+  });
+
+  it('logs the validate path without its query string', async () => {
+    const id = randomUUID();
+    const sid = randomUUID();
+
+    await validate(sid).set('X-Request-Id', id).expect(200);
+    const line = await completed(id);
+
+    expect(line.request_id).toBe(id);
+    expect(line.req).toEqual({
+      method: 'GET',
+      url: '/internal/holds/validate',
+    });
+    expect(captured.join('')).not.toContain(sid);
+    expect(rawLinesOf(id).length).toBeGreaterThan(0);
+    rawLinesOf(id).forEach((raw) => expect(raw).not.toContain('?'));
+  });
+
+  it('logs the filter warn for a 4xx with the path only', async () => {
+    const id = randomUUID();
+    const sid = randomUUID();
+
+    await validate(`${sid}x`).set('X-Request-Id', id).expect(400);
+    await completed(id);
+
+    expect(lines()).toContainEqual(
+      expect.objectContaining({
+        context: 'HttpExceptionFilter',
+        level: 40,
+        request_id: id,
+        msg: 'GET /internal/holds/validate 400 VALIDATION_FAILED',
+      }),
+    );
+    expect(captured.join('')).not.toContain(sid);
+    rawLinesOf(id).forEach((raw) => expect(raw).not.toContain('?'));
   });
 
   it('generates an id when the header is missing', async () => {
