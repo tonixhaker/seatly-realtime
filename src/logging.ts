@@ -10,7 +10,8 @@ const UNLOGGED_PATHS = ['/health', '/health/live'];
 const requestIdOf = (header: string | string[] | undefined): string =>
   typeof header === 'string' && REQUEST_ID.test(header) ? header : randomUUID();
 
-const pathOf = (req: IncomingMessage): string => (req.url ?? '').split('?')[0];
+export const pathOf = (req: { url?: string }): string =>
+  (req.url ?? '').split('?')[0];
 
 export const loggerModule = LoggerModule.forRoot({
   pinoHttp: [
@@ -26,9 +27,9 @@ export const loggerModule = LoggerModule.forRoot({
         ignore: (req: IncomingMessage) => UNLOGGED_PATHS.includes(pathOf(req)),
       },
       serializers: {
-        req: (req: { method: string; url: string }) => ({
+        req: (req: { method: string; url?: string }) => ({
           method: req.method,
-          url: req.url,
+          url: pathOf(req),
         }),
         res: (res: { statusCode: number }) => ({ statusCode: res.statusCode }),
       },

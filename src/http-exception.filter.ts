@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
+import { pathOf } from './logging';
 
 interface Envelope {
   status: number;
@@ -64,12 +65,12 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     if (envelope.status >= 500) {
       this.logger.error(
-        `${request.method} ${request.url} ${envelope.status}`,
+        `${request.method} ${pathOf(request)} ${envelope.status}`,
         exception instanceof Error ? exception.stack : undefined,
       );
     } else {
       this.logger.warn(
-        `${request.method} ${request.url} ${envelope.status} ${envelope.code}`,
+        `${request.method} ${pathOf(request)} ${envelope.status} ${envelope.code}`,
       );
     }
 
