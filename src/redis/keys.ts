@@ -13,6 +13,8 @@ export const soldKey = (eventId: number): string => `sold:${eventId}`;
 
 export const soldWarmKey = (eventId: number): string => `sold-warm:${eventId}`;
 
+export const seatsKey = (eventId: number): string => `seats:${eventId}`;
+
 export const holdPattern = (eventId: number): string => `hold:${eventId}:*`;
 
 export const sessionMember = (eventId: number, seatId: number): string =>

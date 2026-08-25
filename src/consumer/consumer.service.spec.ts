@@ -6,7 +6,13 @@ import { DEFAULT_TOPOLOGY, MAX_ATTEMPTS } from './topology';
 import { SeatEventsService, SeatsSold } from '../events/seat-events.service';
 import { HoldStoreService } from '../holds/hold-store.service';
 import { SoldCacheService } from '../sold/sold-cache.service';
-import { consumedKey, holdKey, soldKey, soldWarmKey } from '../redis/keys';
+import {
+  consumedKey,
+  holdKey,
+  seatsKey,
+  soldKey,
+  soldWarmKey,
+} from '../redis/keys';
 
 const EVENT = 4242;
 const SESSION = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -197,6 +203,21 @@ describe('ConsumerService', () => {
       expect(ttl).toBeLessThanOrEqual(60);
       expect(await redis.exists(soldKey(EVENT))).toBe(0);
       expect(emitted).toHaveLength(0);
+    });
+
+    it('stores the published seat list without an expiry', async () => {
+      await consumer.handle(
+        bytes(
+          envelope('event.published', { event_id: EVENT, seat_ids: [1, 2, 3] }),
+        ),
+      );
+
+      expect(
+        (await redis.smembers(seatsKey(EVENT)))
+          .map(Number)
+          .sort((a, b) => a - b),
+      ).toEqual([1, 2, 3]);
+      expect(await redis.ttl(seatsKey(EVENT))).toBe(-1);
     });
   });
 
