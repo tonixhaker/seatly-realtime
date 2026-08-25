@@ -10,9 +10,12 @@ import { HoldStoreService } from '../src/holds/hold-store.service';
 import {
   expiryKey,
   holdKey,
+  seatsKey,
   sessionKey,
   sessionMember,
+  soldWarmKey,
 } from '../src/redis/keys';
+import { knownSeats } from './support/known-seats';
 
 const BASE_EVENT_ID = 600000 + Math.floor(Math.random() * 90000);
 const WAIT_TIMEOUT_MS = 2000;
@@ -58,11 +61,13 @@ describe('hold expiry through keyspace notifications', () => {
     );
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     eventId = ++nextEventId;
     otherEventId = ++nextEventId;
     mine = randomUUID();
     theirs = randomUUID();
+    await knownSeats(redis, eventId);
+    await knownSeats(redis, otherEventId);
   });
 
   afterEach(async () => {
@@ -76,7 +81,15 @@ describe('hold expiry through keyspace notifications', () => {
       ...(await redis.keys(`expiry:*:${eventId}:*`)),
       ...(await redis.keys(`expiry:*:${otherEventId}:*`)),
     ];
-    await redis.del(...keys, sessionKey(mine), sessionKey(theirs));
+    await redis.del(
+      ...keys,
+      sessionKey(mine),
+      sessionKey(theirs),
+      seatsKey(eventId),
+      seatsKey(otherEventId),
+      soldWarmKey(eventId),
+      soldWarmKey(otherEventId),
+    );
   });
 
   afterAll(async () => {

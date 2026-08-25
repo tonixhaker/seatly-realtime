@@ -14,6 +14,7 @@ import { HttpExceptionFilter } from '../src/http-exception.filter';
 import {
   expiryKey,
   holdKey,
+  seatsKey,
   sessionKey,
   soldKey,
   soldWarmKey,
@@ -22,6 +23,7 @@ import {
   deleteTopology,
   throwawayTopology,
 } from './support/throwaway-topology';
+import { knownSeats } from './support/known-seats';
 
 jest.setTimeout(30000);
 
@@ -128,11 +130,13 @@ describe('WebSocket gateway (e2e)', () => {
     await redis.set(soldWarmKey(event), '', 'EX', 60);
   };
 
-  const hold = (event: number, seatIds: number[], sessionId: string) =>
-    request(http())
+  const hold = async (event: number, seatIds: number[], sessionId: string) => {
+    await knownSeats(redis, event);
+    await request(http())
       .post('/holds')
       .send({ event_id: event, seat_ids: seatIds, session_id: sessionId })
       .expect(201);
+  };
 
   const release = (event: number, seatIds: number[], sessionId: string) =>
     request(http())
@@ -274,6 +278,8 @@ describe('WebSocket gateway (e2e)', () => {
       soldKey(otherEventId),
       soldWarmKey(eventId),
       soldWarmKey(otherEventId),
+      seatsKey(eventId),
+      seatsKey(otherEventId),
       ...publishedIds.map((id) => `consumed:${id}`),
     );
 

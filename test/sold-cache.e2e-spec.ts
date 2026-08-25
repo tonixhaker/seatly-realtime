@@ -10,6 +10,7 @@ import { validateEnv } from '../src/env.schema';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
 import { seatsKey, soldKey, soldWarmKey } from '../src/redis/keys';
 import { CORE_SEATS as SEATS, CoreStub } from './support/core-stub';
+import { knownSeats } from './support/known-seats';
 
 const BASE_EVENT_ID = 500000 + Math.floor(Math.random() * 90000);
 
@@ -143,6 +144,7 @@ describe('The sold cache behind GET /events/:id/live-seats (e2e)', () => {
 
   it('reports exactly the seats this session holds', async () => {
     core.answer('empty');
+    await knownSeats(redis, eventId);
     await hold(app, eventId, [11, 4, 7], session);
 
     expect((await liveSeats(app, eventId)).held).toEqual([4, 7, 11]);
@@ -152,6 +154,8 @@ describe('The sold cache behind GET /events/:id/live-seats (e2e)', () => {
     core.answer('empty');
     const elsewhere = useEvent();
 
+    await knownSeats(redis, eventId);
+    await knownSeats(redis, elsewhere);
     await hold(app, eventId, [4], session);
     await hold(app, elsewhere, [9], session);
 
@@ -249,6 +253,8 @@ describe('The sold cache behind GET /events/:id/live-seats (e2e)', () => {
   });
 
   it('keeps held and sold disjoint, and sold wins', async () => {
+    await liveSeats(app, eventId);
+    await knownSeats(redis, eventId);
     await hold(app, eventId, [4, 7], session);
 
     const snapshot = await liveSeats(app, eventId);

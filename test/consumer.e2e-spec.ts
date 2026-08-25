@@ -17,6 +17,7 @@ import { HttpExceptionFilter } from '../src/http-exception.filter';
 import { loggerModule } from '../src/logging';
 import { SoldCacheService } from '../src/sold/sold-cache.service';
 import { CoreStub } from './support/core-stub';
+import { knownSeats } from './support/known-seats';
 import {
   deleteTopology,
   throwawayTopology,
@@ -197,6 +198,7 @@ describe('RabbitMQ consumer (e2e)', () => {
     sessionId: string,
   ): Promise<void> => {
     touchedSessions.push(sessionId);
+    await knownSeats(redis, event);
     const outcome = await store.acquire({ eventId: event, seatIds, sessionId });
 
     expect(outcome.ok).toBe(true);

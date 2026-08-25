@@ -8,8 +8,15 @@ import Redis from 'ioredis';
 import { HoldsModule } from '../src/holds/holds.module';
 import { validateEnv } from '../src/env.schema';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
-import { holdKey, sessionKey, soldKey, soldWarmKey } from '../src/redis/keys';
+import {
+  holdKey,
+  seatsKey,
+  sessionKey,
+  soldKey,
+  soldWarmKey,
+} from '../src/redis/keys';
 import { CoreStub } from './support/core-stub';
+import { knownSeats } from './support/known-seats';
 
 const BASE_EVENT_ID = 400000 + Math.floor(Math.random() * 90000);
 
@@ -126,6 +133,7 @@ describe('Token validation through core (e2e)', () => {
       sessionKey(session),
       soldKey(eventId),
       soldWarmKey(eventId),
+      seatsKey(eventId),
     ];
 
     await redis.del(...doomed);
@@ -138,13 +146,14 @@ describe('Token validation through core (e2e)', () => {
     await core.stop();
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     nextEventId += 1;
     eventId = nextEventId;
     session = randomUUID();
     token = issue();
     otherToken = issue();
     core.reset();
+    await knownSeats(redis, eventId);
   });
 
   describe('a token core accepts', () => {
