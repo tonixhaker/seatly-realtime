@@ -3,7 +3,12 @@ import type Redis from 'ioredis';
 import RedisMock from 'ioredis-mock';
 import { createServer, Server, Socket } from 'node:net';
 import { SoldCacheService } from './sold-cache.service';
-import { SOLD_WARM_TTL_SECONDS, soldKey, soldWarmKey } from '../redis/keys';
+import {
+  SOLD_WARM_TTL_SECONDS,
+  seatsKey,
+  soldKey,
+  soldWarmKey,
+} from '../redis/keys';
 
 const EVENT = 4242;
 const OTHER_EVENT = 4243;
@@ -69,6 +74,15 @@ const OTHER_SEATS = [
     status: 'sold',
   },
 ];
+
+const THREE_SEATS = [
+  { id: 1, status: 'free' },
+  { id: 2, status: 'sold' },
+  { id: 3, status: 'free' },
+];
+
+const members = async (redis: Redis, key: string): Promise<number[]> =>
+  (await redis.smembers(key)).map(Number).sort((a, b) => a - b);
 
 const urlOf = (input: string | URL | Request): string => {
   if (typeof input === 'string') {
@@ -298,7 +312,51 @@ describe('SoldCacheService', () => {
     expect(fetchSpy).toHaveBeenCalledTimes(2);
   });
 
-  describe('markSold and markWarm', () => {
+  describe('the seat list', () => {
+    it('stores every seat core returns without an expiry, and only the sold ones as sold', async () => {
+      fetchSpy.mockResolvedValue(answers(THREE_SEATS));
+
+      expect(await cache.soldSeats(EVENT)).toEqual([2]);
+      expect(await members(redis, seatsKey(EVENT))).toEqual([1, 2, 3]);
+      expect(await redis.ttl(seatsKey(EVENT))).toBe(-1);
+      expect(await members(redis, soldKey(EVENT))).toEqual([2]);
+    });
+
+    it('writes no seat list for an event core does not know', async () => {
+      fetchSpy.mockResolvedValue(
+        answers({ error: { code: 'NOT_FOUND' } }, 404),
+      );
+
+      expect(await cache.soldSeats(EVENT)).toEqual([]);
+      expect(await redis.exists(seatsKey(EVENT))).toBe(0);
+    });
+
+    it('answers nothing sold rather than failing when core is unreachable and the seat list is known', async () => {
+      await redis.sadd(seatsKey(EVENT), 1, 2, 3);
+      fetchSpy.mockRejectedValue(new Error('connect ECONNREFUSED'));
+
+      expect(await cache.soldSeats(EVENT)).toEqual([]);
+      expect(await redis.exists(soldWarmKey(EVENT))).toBe(0);
+    });
+
+    it('answers nothing sold rather than failing when core errors and the seat list is known', async () => {
+      await redis.sadd(seatsKey(EVENT), 1, 2, 3);
+      fetchSpy.mockResolvedValue(answers({ error: {} }, 500));
+
+      expect(await cache.soldSeats(EVENT)).toEqual([]);
+    });
+
+    it('still refuses with SOLD_STATE_UNAVAILABLE when neither the seat list nor a sold set is known', async () => {
+      fetchSpy.mockRejectedValue(new Error('connect ECONNREFUSED'));
+
+      await expect(cache.soldSeats(EVENT)).rejects.toMatchObject({
+        response: { code: 'SOLD_STATE_UNAVAILABLE' },
+      });
+      expect(await redis.exists(seatsKey(EVENT))).toBe(0);
+    });
+  });
+
+  describe('markSold and markPublished', () => {
     it('unions the paid seats into a set that already exists', async () => {
       await redis.sadd(soldKey(EVENT), 99);
 
@@ -328,10 +386,25 @@ describe('SoldCacheService', () => {
     });
 
     it('marks an event warm for a minute without creating a sold set', async () => {
-      await cache.markWarm(EVENT);
+      await cache.markPublished(EVENT, []);
 
       expect(await redis.ttl(soldWarmKey(EVENT))).toBe(60);
       expect(await redis.exists(soldKey(EVENT))).toBe(0);
+    });
+
+    it('stores the published seat list without an expiry next to a one-minute marker', async () => {
+      await cache.markPublished(EVENT, [10, 11, 12]);
+
+      expect(await members(redis, seatsKey(EVENT))).toEqual([10, 11, 12]);
+      expect(await redis.ttl(seatsKey(EVENT))).toBe(-1);
+      expect(await redis.ttl(soldWarmKey(EVENT))).toBe(60);
+      expect(await redis.exists(soldKey(EVENT))).toBe(0);
+    });
+
+    it('writes only the marker when the event was published with no seats', async () => {
+      await cache.markPublished(EVENT, []);
+
+      expect(await redis.keys('*')).toEqual([soldWarmKey(EVENT)]);
     });
   });
 

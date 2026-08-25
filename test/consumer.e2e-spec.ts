@@ -315,6 +315,7 @@ describe('RabbitMQ consumer (e2e)', () => {
       ...(await redis.keys(`expiry:*:${eventId}:*`)),
       `sold:${eventId}`,
       `sold-warm:${eventId}`,
+      `seats:${eventId}`,
     ];
 
     await redis.del(...keys);
@@ -330,6 +331,7 @@ describe('RabbitMQ consumer (e2e)', () => {
       leftovers.push(
         `sold:${event}`,
         `sold-warm:${event}`,
+        `seats:${event}`,
         ...(await redis.keys(`hold:${event}:*`)),
         ...(await redis.keys(`expiry:*:${event}:*`)),
       );
@@ -701,6 +703,46 @@ describe('RabbitMQ consumer (e2e)', () => {
       expect(ttl).toBeGreaterThan(0);
       expect(ttl).toBeLessThanOrEqual(60);
       expect(await redis.exists(`sold:${eventId}`)).toBe(0);
+    });
+
+    it('stores the published seat list without an expiry next to the warm marker', async () => {
+      const id = publish(
+        'event.published',
+        eventPublished(eventId, [10, 11, 12]),
+      );
+
+      await awaitConsumed(id);
+
+      expect(
+        (await redis.smembers(`seats:${eventId}`))
+          .map(Number)
+          .sort((a, b) => a - b),
+      ).toEqual([10, 11, 12]);
+      expect(await redis.ttl(`seats:${eventId}`)).toBe(-1);
+      expect(await redis.exists(`sold-warm:${eventId}`)).toBe(1);
+    });
+
+    it('writes nothing when the same envelope is delivered again', async () => {
+      const envelope = eventPublished(eventId, [10, 11, 12]);
+      const id = publish('event.published', envelope);
+
+      await awaitConsumed(id);
+      await redis.del(`seats:${eventId}`, `sold-warm:${eventId}`);
+
+      publish('event.published', envelope);
+
+      await waitFor(
+        'the redelivery to be skipped as a duplicate',
+        () =>
+          Promise.resolve(
+            linesMentioning(`skipped duplicate event.published ${id}`).length,
+          ),
+        (value) => value === 1,
+      );
+
+      expect(await redis.exists(`seats:${eventId}`)).toBe(0);
+      expect(await redis.exists(`sold-warm:${eventId}`)).toBe(0);
+      expect(await depthOf(topology.deadLetterQueue)).toBe(0);
     });
   });
 

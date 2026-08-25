@@ -120,7 +120,10 @@ export class ConsumerService {
 
   private async dispatch(message: ConsumedEvent): Promise<void> {
     if (message.event_type === 'event.published') {
-      await this.sold.markWarm(message.payload.event_id);
+      await this.sold.markPublished(
+        message.payload.event_id,
+        message.payload.seat_ids,
+      );
       return;
     }
 

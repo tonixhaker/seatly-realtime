@@ -4,11 +4,21 @@ import Redis from 'ioredis';
 import { z } from 'zod';
 import { coreFetch } from '../core-fetch';
 import { EnvConfig } from '../env.schema';
-import { SOLD_WARM_TTL_SECONDS, soldKey, soldWarmKey } from '../redis/keys';
+import {
+  SOLD_WARM_TTL_SECONDS,
+  seatsKey,
+  soldKey,
+  soldWarmKey,
+} from '../redis/keys';
 
 const coreSeats = z.array(
   z.object({ id: z.number().int(), status: z.string() }),
 );
+
+interface CoreSeatIds {
+  all: number[];
+  sold: number[];
+}
 
 @Injectable()
 export class SoldCacheService {
@@ -45,19 +55,29 @@ export class SoldCacheService {
     await this.redis.sadd(soldKey(eventId), ...seatIds);
   }
 
-  async markWarm(eventId: number): Promise<void> {
-    await this.redis.set(soldWarmKey(eventId), '', 'EX', SOLD_WARM_TTL_SECONDS);
+  async markPublished(eventId: number, seatIds: number[]): Promise<void> {
+    const write = this.redis.multi();
+
+    if (seatIds.length > 0) {
+      write.sadd(seatsKey(eventId), ...seatIds);
+    }
+
+    write.set(soldWarmKey(eventId), '', 'EX', SOLD_WARM_TTL_SECONDS);
+    await write.exec();
   }
 
   private async warm(eventId: number): Promise<number[]> {
-    let sold: number[];
+    let seats: CoreSeatIds;
 
     try {
-      sold = await this.fromCore(eventId);
+      seats = await this.fromCore(eventId);
     } catch {
       const stale = await this.cached(eventId);
 
-      if (stale.length > 0) {
+      if (
+        stale.length > 0 ||
+        (await this.redis.exists(seatsKey(eventId))) === 1
+      ) {
         return stale;
       }
 
@@ -69,8 +89,12 @@ export class SoldCacheService {
 
     const write = this.redis.multi();
 
-    if (sold.length > 0) {
-      write.sadd(soldKey(eventId), ...sold);
+    if (seats.all.length > 0) {
+      write.sadd(seatsKey(eventId), ...seats.all);
+    }
+
+    if (seats.sold.length > 0) {
+      write.sadd(soldKey(eventId), ...seats.sold);
     }
 
     write.set(soldWarmKey(eventId), '', 'EX', SOLD_WARM_TTL_SECONDS);
@@ -79,7 +103,7 @@ export class SoldCacheService {
     return this.cached(eventId);
   }
 
-  private async fromCore(eventId: number): Promise<number[]> {
+  private async fromCore(eventId: number): Promise<CoreSeatIds> {
     const base = this.config.get('CORE_API_URL', { infer: true });
 
     const response = await coreFetch(
@@ -88,7 +112,7 @@ export class SoldCacheService {
     );
 
     if (response.status === 404) {
-      return [];
+      return { all: [], sold: [] };
     }
 
     if (!response.ok) {
@@ -97,10 +121,14 @@ export class SoldCacheService {
       );
     }
 
-    return coreSeats
-      .parse(await response.json())
-      .filter((seat) => seat.status === 'sold')
-      .map((seat) => seat.id);
+    const seats = coreSeats.parse(await response.json());
+
+    return {
+      all: seats.map((seat) => seat.id),
+      sold: seats
+        .filter((seat) => seat.status === 'sold')
+        .map((seat) => seat.id),
+    };
   }
 
   private async cached(eventId: number): Promise<number[]> {

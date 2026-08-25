@@ -8,7 +8,7 @@ import { ConfigModule } from '@nestjs/config';
 import { HoldsModule } from '../src/holds/holds.module';
 import { validateEnv } from '../src/env.schema';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
-import { soldKey, soldWarmKey } from '../src/redis/keys';
+import { seatsKey, soldKey, soldWarmKey } from '../src/redis/keys';
 import { CORE_SEATS as SEATS, CoreStub } from './support/core-stub';
 
 const BASE_EVENT_ID = 500000 + Math.floor(Math.random() * 90000);
@@ -64,6 +64,15 @@ interface LiveSeats {
   held: number[];
   sold: number[];
 }
+
+const THREE_SEATS = [
+  { id: 1, status: 'free' },
+  { id: 2, status: 'sold' },
+  { id: 3, status: 'free' },
+];
+
+const members = async (redis: Redis, key: string): Promise<number[]> =>
+  (await redis.smembers(key)).map(Number).sort((a, b) => a - b);
 
 const liveSeats = async (
   app: INestApplication<App>,
@@ -125,6 +134,7 @@ describe('The sold cache behind GET /events/:id/live-seats (e2e)', () => {
         ...(await redis.keys(`expiry:*:${id}:*`)),
         soldKey(id),
         soldWarmKey(id),
+        seatsKey(id),
       );
     }
 
@@ -248,6 +258,31 @@ describe('The sold cache behind GET /events/:id/live-seats (e2e)', () => {
     expect(snapshot.held).not.toContain(4);
   });
 
+  it('stores every seat core returns without an expiry, and only the sold ones as sold', async () => {
+    core.serve(THREE_SEATS);
+
+    expect((await liveSeats(app, eventId)).sold).toEqual([2]);
+    expect(await members(redis, seatsKey(eventId))).toEqual([1, 2, 3]);
+    expect(await redis.ttl(seatsKey(eventId))).toBe(-1);
+    expect(await members(redis, soldKey(eventId))).toEqual([2]);
+  });
+
+  it('writes no seat list for an event core does not know', async () => {
+    core.answer('missing');
+
+    await liveSeats(app, eventId);
+
+    expect(await redis.exists(seatsKey(eventId))).toBe(0);
+  });
+
+  it('answers nothing sold rather than 503 when core errors and the seat list is known', async () => {
+    await redis.sadd(seatsKey(eventId), 1, 2, 3);
+    core.answer('broken');
+
+    expect((await liveSeats(app, eventId)).sold).toEqual([]);
+    expect(core.callCount).toBe(1);
+  });
+
   describe('with core unreachable', () => {
     let closed: INestApplication<App>;
     let deadEventId: number;
@@ -288,6 +323,16 @@ describe('The sold cache behind GET /events/:id/live-seats (e2e)', () => {
         .expect(200);
 
       expect((response.body as LiveSeats).sold).toEqual([2, 4]);
+    });
+
+    it('answers nothing sold rather than 503 when the seat list is known', async () => {
+      await redis.sadd(seatsKey(deadEventId), 1, 2, 3);
+
+      const response = await request(closed.getHttpServer())
+        .get(`/events/${String(deadEventId)}/live-seats`)
+        .expect(200);
+
+      expect((response.body as LiveSeats).sold).toEqual([]);
     });
 
     it('serves what it already knows rather than failing', async () => {
