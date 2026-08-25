@@ -2,8 +2,9 @@ import { ChildProcess, fork } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import Redis from 'ioredis';
-import { sessionMember } from '../src/redis/keys';
+import { seatsKey, sessionMember, soldWarmKey } from '../src/redis/keys';
 import { AcquireOutcome } from '../src/holds/hold-store.service';
+import { knownSeats } from './support/known-seats';
 
 const ROUNDS = 20;
 const SEAT_IDS = [1, 2, 3, 4];
@@ -124,6 +125,8 @@ describe('concurrent acquisition of overlapping seat sets', () => {
       const sessions = [randomUUID(), randomUUID()];
       const seatOrders = [SEAT_IDS, [...SEAT_IDS].reverse()];
 
+      await knownSeats(redis, eventId);
+
       const results = children.map((child, index) => {
         const settled = nextResult(child, round);
         child.send({
@@ -177,6 +180,8 @@ describe('concurrent acquisition of overlapping seat sets', () => {
         ...heldKeys,
         ...companionKeys,
         `session:${sessions[winnerIndex]}`,
+        seatsKey(eventId),
+        soldWarmKey(eventId),
       );
     }
 

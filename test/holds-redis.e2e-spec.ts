@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import Redis from 'ioredis';
 import { HoldStoreService } from '../src/holds/hold-store.service';
-import { sessionMember } from '../src/redis/keys';
+import { seatsKey, sessionMember, soldWarmKey } from '../src/redis/keys';
+import { knownSeats } from './support/known-seats';
 
 const BASE_EVENT_ID = 900000 + Math.floor(Math.random() * 90000);
 
@@ -21,10 +22,11 @@ describe('hold store against a real Redis', () => {
     store = new HoldStoreService(redis);
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     eventId = ++nextEventId;
     mine = randomUUID();
     theirs = randomUUID();
+    await knownSeats(redis, eventId);
   });
 
   afterEach(async () => {
@@ -32,7 +34,13 @@ describe('hold store against a real Redis', () => {
       ...(await redis.keys(`hold:${eventId}:*`)),
       ...(await redis.keys(`expiry:*:${eventId}:*`)),
     ];
-    await redis.del(...keys, `session:${mine}`, `session:${theirs}`);
+    await redis.del(
+      ...keys,
+      `session:${mine}`,
+      `session:${theirs}`,
+      seatsKey(eventId),
+      soldWarmKey(eventId),
+    );
   });
 
   afterAll(async () => {

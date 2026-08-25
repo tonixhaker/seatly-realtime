@@ -1,16 +1,19 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { randomUUID } from 'node:crypto';
+import Redis from 'ioredis';
 import { Logger } from 'nestjs-pino';
 import request from 'supertest';
 import { App } from 'supertest/types';
 import { AppModule } from '../src/app.module';
 import { CONSUMER_TOPOLOGY } from '../src/consumer/topology';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
+import { seatsKey, soldWarmKey } from '../src/redis/keys';
 import {
   deleteTopology,
   throwawayTopology,
 } from './support/throwaway-topology';
+import { knownSeats } from './support/known-seats';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -104,11 +107,15 @@ describe('Structured logging and request id (e2e)', () => {
 
   it('echoes a valid X-Request-Id on POST /holds and logs it as request_id', async () => {
     const id = randomUUID();
+    const redis = app.get(Redis);
+    const eventId = 900000 + Math.floor(Math.random() * 90000);
     const body = {
-      event_id: 900000 + Math.floor(Math.random() * 90000),
+      event_id: eventId,
       seat_ids: [1],
       session_id: randomUUID(),
     };
+
+    await knownSeats(redis, eventId);
 
     const response = await request(http())
       .post('/holds')
@@ -120,6 +127,7 @@ describe('Structured logging and request id (e2e)', () => {
     expect((await completed(id)).res).toEqual({ statusCode: 201 });
 
     await request(http()).delete('/holds').send(body).expect(204);
+    await redis.del(seatsKey(eventId), soldWarmKey(eventId));
   });
 
   it('logs the id core forwards to GET /internal/holds/validate', async () => {

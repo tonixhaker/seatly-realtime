@@ -5,7 +5,7 @@ import { App } from 'supertest/types';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { sessionMember } from '../src/redis/keys';
+import { seatsKey, sessionMember, soldWarmKey } from '../src/redis/keys';
 import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
@@ -15,6 +15,7 @@ import {
   deleteTopology,
   throwawayTopology,
 } from './support/throwaway-topology';
+import { knownSeats } from './support/known-seats';
 
 const SESSION_ID = '0b5f9d6e-3b4a-4c2d-8e1f-7a6b5c4d3e2f';
 const INTERNAL_TOKEN = 'e2e-internal-token';
@@ -99,12 +100,13 @@ describe('Holds REST surface (e2e)', () => {
     });
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     jest.clearAllMocks();
     process.env.INTERNAL_TOKEN = INTERNAL_TOKEN;
     eventId = ++nextEventId;
     mine = randomUUID();
     theirs = randomUUID();
+    await knownSeats(redis, eventId);
   });
 
   afterEach(async () => {
@@ -112,7 +114,13 @@ describe('Holds REST surface (e2e)', () => {
       ...(await redis.keys(`hold:${eventId}:*`)),
       ...(await redis.keys(`expiry:*:${eventId}:*`)),
     ];
-    await redis.del(...keys, `session:${mine}`, `session:${theirs}`);
+    await redis.del(
+      ...keys,
+      `session:${mine}`,
+      `session:${theirs}`,
+      seatsKey(eventId),
+      soldWarmKey(eventId),
+    );
   });
 
   afterAll(async () => {
