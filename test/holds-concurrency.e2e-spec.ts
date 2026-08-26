@@ -154,9 +154,9 @@ describe('concurrent acquisition of overlapping seat sets', () => {
       const winnerIndex = outcomes.findIndex((outcome) => outcome.ok);
       const loser = outcomes[1 - winnerIndex];
       expect(loser.ok).toBe(false);
-      if (!loser.ok) {
-        expect([...loser.conflicts].sort(byValue)).toEqual(SEAT_IDS);
-      }
+      expect(
+        'conflicts' in loser ? [...loser.conflicts].sort(byValue) : loser,
+      ).toEqual(SEAT_IDS);
 
       const heldKeys = await redis.keys(`hold:${String(eventId)}:*`);
       expect(heldKeys).toHaveLength(SEAT_IDS.length);

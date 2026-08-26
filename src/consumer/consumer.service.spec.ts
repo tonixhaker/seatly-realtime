@@ -77,6 +77,7 @@ describe('ConsumerService', () => {
 
   describe('order.paid', () => {
     it('sells exactly the paid seats, releases exactly their holds and emits once', async () => {
+      await redis.sadd(seatsKey(EVENT), 1, 2, 3);
       await store.acquire({
         eventId: EVENT,
         seatIds: [1, 2, 3],
@@ -162,6 +163,7 @@ describe('ConsumerService', () => {
 
   describe('order.payment_failed', () => {
     it('leaves every hold alive, writes nothing but the dedup key and emits nothing', async () => {
+      await redis.sadd(seatsKey(EVENT), 1, 2, 3);
       await store.acquire({
         eventId: EVENT,
         seatIds: [1, 2],

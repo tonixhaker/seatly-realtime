@@ -21,7 +21,7 @@
             "description": "Every requested seat is held by this session."
           },
           "400": {
-            "description": "VALIDATION_FAILED — malformed, unknown or invalid fields.",
+            "description": "VALIDATION_FAILED — malformed, unknown or invalid fields, or seats that are not part of the event (details.unknown_seat_ids, in request order). An event seatly-api does not know has no seats, so every seat of it is unknown. Checked before conflicts, so a request with both unknown and sold seats answers 400.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41,7 +41,7 @@
             }
           },
           "409": {
-            "description": "SEATS_CONFLICT — at least one seat is already held by another session.",
+            "description": "SEATS_CONFLICT — at least one seat is already held by another session or already sold. Nothing is held and nothing is broadcast.",
             "content": {
               "application/json": {
                 "schema": {
@@ -51,7 +51,7 @@
             }
           },
           "503": {
-            "description": "AUTH_STATE_UNAVAILABLE — a bearer token was presented and seatly-api could not be asked about it, so the caller is neither verified nor assumed to be a guest.",
+            "description": "AUTH_STATE_UNAVAILABLE — a bearer token was presented and seatly-api could not be asked about it, so the caller is neither verified nor assumed to be a guest. Or SOLD_STATE_UNAVAILABLE — the seat list of this event was never loaded and seatly-api is unreachable, so no seat can be checked.",
             "content": {
               "application/json": {
                 "schema": {
@@ -387,7 +387,7 @@
             "items": {
               "type": "integer"
             },
-            "description": "The requested seats already held by another session.",
+            "description": "The requested seats already held by another session or already sold, in request order.",
             "example": [
               4,
               7
@@ -410,7 +410,7 @@
           },
           "message": {
             "type": "string",
-            "example": "Some of the requested seats are already held."
+            "example": "Some of the requested seats are already held or sold."
           },
           "details": {
             "$ref": "#/components/schemas/SeatsConflictDetailsDto"

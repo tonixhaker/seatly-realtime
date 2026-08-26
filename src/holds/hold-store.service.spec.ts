@@ -6,13 +6,16 @@ import {
   holdKey,
   holdPattern,
   parseHoldSeatId,
+  seatsKey,
   sessionKey,
   sessionMember,
+  soldKey,
 } from '../redis/keys';
 
 const EVENT = 42;
 const SESSION = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const OTHER = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const SEAT_IDS = Array.from({ length: 50 }, (_, i) => i + 1);
 
 describe('holdPattern and parseHoldSeatId', () => {
   it('matches the hold keys of one event and no other', () => {
@@ -43,6 +46,9 @@ describe('HoldStoreService', () => {
   beforeEach(async () => {
     redis = new RedisMock();
     await redis.flushall();
+    for (const event of [EVENT, EVENT + 1, EVENT + 5, 421, 4]) {
+      await redis.sadd(seatsKey(event), ...SEAT_IDS);
+    }
     store = new HoldStoreService(redis);
   });
 
@@ -50,7 +56,8 @@ describe('HoldStoreService', () => {
     redis.disconnect();
   });
 
-  const keyCount = async (): Promise<number> => (await redis.keys('*')).length;
+  const keyCount = async (): Promise<number> =>
+    (await redis.keys('*')).filter((key) => !key.startsWith('seats:')).length;
 
   it('takes four free seats and records them in the session set', async () => {
     const outcome = await store.acquire({
@@ -416,6 +423,105 @@ describe('HoldStoreService', () => {
     expect((await redis.smembers(`session:${SESSION}`)).map(String)).toEqual([
       sessionMember(EVENT, 1),
     ]);
+  });
+
+  describe('refusing unknown and sold seats', () => {
+    const UNSEEDED_EVENT = 999;
+
+    it('refuses seats outside the event seat list, naming them in request order and writing nothing', async () => {
+      const before = await keyCount();
+
+      const outcome = await store.acquire({
+        eventId: EVENT,
+        seatIds: [77, 3, 51],
+        sessionId: SESSION,
+      });
+
+      expect(outcome).toEqual({ ok: false, unknown: [77, 51] });
+      expect(await keyCount()).toBe(before);
+      expect(await redis.exists(sessionKey(SESSION))).toBe(0);
+    });
+
+    it('calls every seat unknown for an event with no seat list at all', async () => {
+      const outcome = await store.acquire({
+        eventId: UNSEEDED_EVENT,
+        seatIds: [2, 1],
+        sessionId: SESSION,
+      });
+
+      expect(outcome).toEqual({ ok: false, unknown: [2, 1] });
+      expect(await keyCount()).toBe(0);
+    });
+
+    it('refuses a sold seat as a conflict and writes nothing', async () => {
+      await redis.sadd(soldKey(EVENT), 5);
+      const before = await keyCount();
+
+      const outcome = await store.acquire({
+        eventId: EVENT,
+        seatIds: [4, 5],
+        sessionId: SESSION,
+      });
+
+      expect(outcome).toEqual({ ok: false, conflicts: [5] });
+      expect(await keyCount()).toBe(before);
+      expect(await redis.exists(holdKey(EVENT, 4))).toBe(0);
+      expect(await redis.exists(sessionKey(SESSION))).toBe(0);
+    });
+
+    it('interleaves sold and held-by-other seats in request order', async () => {
+      await redis.sadd(soldKey(EVENT), 5);
+      await store.acquire({ eventId: EVENT, seatIds: [3], sessionId: OTHER });
+      const before = await keyCount();
+
+      const outcome = await store.acquire({
+        eventId: EVENT,
+        seatIds: [9, 5, 3],
+        sessionId: SESSION,
+      });
+
+      expect(outcome).toEqual({ ok: false, conflicts: [5, 3] });
+      expect(await keyCount()).toBe(before);
+      expect(await redis.exists(holdKey(EVENT, 9))).toBe(0);
+    });
+
+    it('answers unknown rather than conflict when a request has both', async () => {
+      await redis.sadd(soldKey(EVENT), 5);
+
+      const outcome = await store.acquire({
+        eventId: EVENT,
+        seatIds: [5, 99],
+        sessionId: SESSION,
+      });
+
+      expect(outcome).toEqual({ ok: false, unknown: [99] });
+    });
+
+    it('lists a sold seat that another session also holds only once', async () => {
+      await store.acquire({ eventId: EVENT, seatIds: [6], sessionId: OTHER });
+      await redis.sadd(soldKey(EVENT), 6);
+
+      const outcome = await store.acquire({
+        eventId: EVENT,
+        seatIds: [6, 7],
+        sessionId: SESSION,
+      });
+
+      expect(outcome).toEqual({ ok: false, conflicts: [6] });
+    });
+
+    it('still retains a seat the session holds when other seats of the event are sold', async () => {
+      await store.acquire({ eventId: EVENT, seatIds: [1], sessionId: SESSION });
+      await redis.sadd(soldKey(EVENT), 8);
+
+      const outcome = await store.acquire({
+        eventId: EVENT,
+        seatIds: [1, 2],
+        sessionId: SESSION,
+      });
+
+      expect(outcome).toEqual({ ok: true, acquired: [2], retained: [1] });
+    });
   });
 
   describe('forceRelease', () => {

@@ -7,8 +7,10 @@ import {
   holdKey,
   holdPattern,
   parseHoldSeatId,
+  seatsKey,
   sessionKey,
   sessionMember,
+  soldKey,
 } from '../redis/keys';
 
 export interface HoldPayload {
@@ -26,7 +28,8 @@ export interface AcquireInput {
 
 export type AcquireOutcome =
   | { ok: true; acquired: number[]; retained: number[] }
-  | { ok: false; conflicts: number[] };
+  | { ok: false; conflicts: number[] }
+  | { ok: false; unknown: number[] };
 
 export interface ReleaseInput {
   eventId: number;
@@ -39,8 +42,32 @@ const OWNER_PATTERN = /"sessionId":"([^"]*)"/;
 const SCAN_COUNT = 100;
 
 const ACQUIRE_SCRIPT = `
-local n = math.floor((#KEYS - 1) / 2)
+local n = math.floor((#KEYS - 3) / 2)
+local soldKey = KEYS[2 * n + 1]
+local seatsKey = KEYS[2 * n + 2]
 local sessionKey = KEYS[#KEYS]
+local verdicts = ''
+local refused = false
+for i = 1, n do
+  local seat = ARGV[3 + n + i]
+  if redis.call('SISMEMBER', seatsKey, seat) == 0 then
+    verdicts = verdicts .. 'U'
+    refused = true
+  elseif redis.call('SISMEMBER', soldKey, seat) == 1 then
+    verdicts = verdicts .. 'S'
+    refused = true
+  else
+    local current = redis.call('GET', KEYS[i])
+    if current and string.match(current, '"sessionId":"([^"]*)"') ~= ARGV[1] then
+      verdicts = verdicts .. 'C'
+    else
+      verdicts = verdicts .. '-'
+    end
+  end
+end
+if refused then
+  return verdicts
+end
 local codes = ''
 local conflicted = false
 for i = 1, n do
@@ -125,16 +152,33 @@ export class HoldStoreService {
       heldAt: new Date().toISOString(),
     };
 
-    const codes = await this.run(ACQUIRE_SCRIPT, eventId, seatIds, sessionId, [
-      JSON.stringify(payload),
-      String(HOLD_TTL_SECONDS),
-      ...seatIds.map((seatId) => sessionMember(eventId, seatId)),
-    ]);
+    const codes = await this.run(
+      ACQUIRE_SCRIPT,
+      eventId,
+      seatIds,
+      sessionId,
+      [
+        JSON.stringify(payload),
+        String(HOLD_TTL_SECONDS),
+        ...seatIds.map((seatId) => sessionMember(eventId, seatId)),
+        ...seatIds.map(String),
+      ],
+      [soldKey(eventId), seatsKey(eventId)],
+    );
 
-    if (codes.includes('C')) {
+    if (codes.includes('U')) {
       return {
         ok: false,
-        conflicts: seatIds.filter((_, i) => codes[i] === 'C'),
+        unknown: seatIds.filter((_, i) => codes[i] === 'U'),
+      };
+    }
+
+    if (codes.includes('C') || codes.includes('S')) {
+      return {
+        ok: false,
+        conflicts: seatIds.filter(
+          (_, i) => codes[i] === 'C' || codes[i] === 'S',
+        ),
       };
     }
 
@@ -238,10 +282,12 @@ export class HoldStoreService {
     seatIds: number[],
     sessionId: string,
     tail: string[],
+    middle: string[] = [],
   ): Promise<string> {
     const keys = [
       ...seatIds.map((seatId) => holdKey(eventId, seatId)),
       ...seatIds.map((seatId) => expiryKey(sessionId, eventId, seatId)),
+      ...middle,
       sessionKey(sessionId),
     ];
 

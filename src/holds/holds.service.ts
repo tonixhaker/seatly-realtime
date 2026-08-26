@@ -1,4 +1,8 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { HoldSeatsDto } from './dto/hold-seats.dto';
 import { ValidateHoldsQueryDto } from './dto/validate-holds-query.dto';
 import { LiveSeatsDto, ValidateHoldsDto } from './dto/holds-response.dto';
@@ -15,6 +19,8 @@ export class HoldsService {
   ) {}
 
   async hold(dto: HoldSeatsDto, userId: number | undefined): Promise<void> {
+    await this.sold.ensureSeats(dto.event_id);
+
     const outcome = await this.store.acquire({
       eventId: dto.event_id,
       seatIds: dto.seat_ids,
@@ -22,10 +28,18 @@ export class HoldsService {
       userId,
     });
 
+    if (!outcome.ok && 'unknown' in outcome) {
+      throw new BadRequestException({
+        code: 'VALIDATION_FAILED',
+        message: 'Some of the requested seats do not belong to this event.',
+        details: { unknown_seat_ids: outcome.unknown },
+      });
+    }
+
     if (!outcome.ok) {
       throw new ConflictException({
         code: 'SEATS_CONFLICT',
-        message: 'Some of the requested seats are already held.',
+        message: 'Some of the requested seats are already held or sold.',
         details: { conflicting_seat_ids: outcome.conflicts },
       });
     }
