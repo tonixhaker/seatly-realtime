@@ -601,7 +601,12 @@ describe('RabbitMQ consumer (e2e)', () => {
       await awaitConsumed(id);
       expect(soldEmits).toBe(1);
 
-      await hold(eventId, [1], later);
+      await redis.set(
+        `hold:${eventId}:1`,
+        JSON.stringify({ sessionId: later, heldAt: new Date().toISOString() }),
+        'EX',
+        600,
+      );
 
       publishedIds.push(envelope.event_id as string);
       channel.publish(

@@ -28,15 +28,17 @@ const optionalBearer: Record<string, string[]>[] = [
   { [BEARER_SECURITY_SCHEME]: [] },
 ];
 
-const unverifiedCredential = () => [
+const AUTH_STATE_UNAVAILABLE =
+  'AUTH_STATE_UNAVAILABLE — a bearer token was presented and seatly-api could not be asked about it, so the caller is neither verified nor assumed to be a guest.';
+
+const unverifiedCredential = (unavailable = AUTH_STATE_UNAVAILABLE) => [
   ApiUnauthorizedResponse({
     description:
       'UNAUTHENTICATED — a bearer token was presented and seatly-api rejected it. A request with no token is a guest and is never refused here.',
     type: ErrorResponseDto,
   }),
   ApiServiceUnavailableResponse({
-    description:
-      'AUTH_STATE_UNAVAILABLE — a bearer token was presented and seatly-api could not be asked about it, so the caller is neither verified nor assumed to be a guest.',
+    description: unavailable,
     type: ErrorResponseDto,
   }),
 ];
@@ -58,11 +60,17 @@ export const ApiCreateHold = () =>
     ApiCreatedResponse({
       description: 'Every requested seat is held by this session.',
     }),
-    badRequest(),
-    ...unverifiedCredential(),
+    ApiBadRequestResponse({
+      description:
+        'VALIDATION_FAILED — malformed, unknown or invalid fields, or seats that are not part of the event (details.unknown_seat_ids, in request order). An event seatly-api does not know has no seats, so every seat of it is unknown. Checked before conflicts, so a request with both unknown and sold seats answers 400.',
+      type: ErrorResponseDto,
+    }),
+    ...unverifiedCredential(
+      `${AUTH_STATE_UNAVAILABLE} Or SOLD_STATE_UNAVAILABLE — the seat list of this event was never loaded and seatly-api is unreachable, so no seat can be checked.`,
+    ),
     ApiConflictResponse({
       description:
-        'SEATS_CONFLICT — at least one seat is already held by another session.',
+        'SEATS_CONFLICT — at least one seat is already held by another session or already sold. Nothing is held and nothing is broadcast.',
       type: SeatsConflictResponseDto,
     }),
   );

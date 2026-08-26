@@ -356,6 +356,44 @@ describe('SoldCacheService', () => {
     });
   });
 
+  describe('ensureSeats', () => {
+    it('resolves without calling core when the seat list and the marker are present', async () => {
+      await redis.sadd(seatsKey(EVENT), 1, 2, 3);
+      await redis.set(soldWarmKey(EVENT), '', 'EX', 60);
+      fetchSpy.mockResolvedValue(answers(SEATS));
+
+      await expect(cache.ensureSeats(EVENT)).resolves.toBeUndefined();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('resolves on the marker alone, which is how a core 404 is cached', async () => {
+      await redis.set(soldWarmKey(EVENT), '', 'EX', 60);
+      fetchSpy.mockResolvedValue(answers(SEATS));
+
+      await expect(cache.ensureSeats(EVENT)).resolves.toBeUndefined();
+      expect(fetchSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses with SOLD_STATE_UNAVAILABLE when only a stale sold set is known and core fails', async () => {
+      await redis.sadd(soldKey(EVENT), 2, 4);
+      fetchSpy.mockRejectedValue(new Error('connect ECONNREFUSED'));
+
+      await expect(cache.ensureSeats(EVENT)).rejects.toMatchObject({
+        status: 503,
+        response: { code: 'SOLD_STATE_UNAVAILABLE' },
+      });
+    });
+
+    it('refuses with SOLD_STATE_UNAVAILABLE when the event is cold and core fails', async () => {
+      fetchSpy.mockResolvedValue(answers({ error: {} }, 500));
+
+      await expect(cache.ensureSeats(EVENT)).rejects.toMatchObject({
+        status: 503,
+        response: { code: 'SOLD_STATE_UNAVAILABLE' },
+      });
+    });
+  });
+
   describe('markSold and markPublished', () => {
     it('unions the paid seats into a set that already exists', async () => {
       await redis.sadd(soldKey(EVENT), 99);

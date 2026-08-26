@@ -47,6 +47,18 @@ export class SoldCacheService {
     return warm;
   }
 
+  async ensureSeats(eventId: number): Promise<void> {
+    await this.soldSeats(eventId);
+
+    if (
+      (await this.redis.exists(seatsKey(eventId), soldWarmKey(eventId))) > 0
+    ) {
+      return;
+    }
+
+    throw this.unavailable();
+  }
+
   async markSold(eventId: number, seatIds: number[]): Promise<void> {
     if (seatIds.length === 0) {
       return;
@@ -81,10 +93,7 @@ export class SoldCacheService {
         return stale;
       }
 
-      throw new ServiceUnavailableException({
-        code: 'SOLD_STATE_UNAVAILABLE',
-        message: 'The sold seats of this event are temporarily unknown.',
-      });
+      throw this.unavailable();
     }
 
     const write = this.redis.multi();
@@ -101,6 +110,13 @@ export class SoldCacheService {
     await write.exec();
 
     return this.cached(eventId);
+  }
+
+  private unavailable(): ServiceUnavailableException {
+    return new ServiceUnavailableException({
+      code: 'SOLD_STATE_UNAVAILABLE',
+      message: 'The sold seats of this event are temporarily unknown.',
+    });
   }
 
   private async fromCore(eventId: number): Promise<CoreSeatIds> {

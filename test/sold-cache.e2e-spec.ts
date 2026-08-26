@@ -253,9 +253,9 @@ describe('The sold cache behind GET /events/:id/live-seats (e2e)', () => {
   });
 
   it('keeps held and sold disjoint, and sold wins', async () => {
-    await liveSeats(app, eventId);
     await knownSeats(redis, eventId);
     await hold(app, eventId, [4, 7], session);
+    await redis.sadd(soldKey(eventId), 4);
 
     const snapshot = await liveSeats(app, eventId);
 
@@ -287,6 +287,71 @@ describe('The sold cache behind GET /events/:id/live-seats (e2e)', () => {
 
     expect((await liveSeats(app, eventId)).sold).toEqual([]);
     expect(core.callCount).toBe(1);
+  });
+
+  describe('POST /holds', () => {
+    const post = (seatIds: number[]) =>
+      request(app.getHttpServer())
+        .post('/holds')
+        .send({ event_id: eventId, seat_ids: seatIds, session_id: session });
+
+    const holdKeys = () => redis.keys(`hold:${String(eventId)}:*`);
+
+    it('holds a free seat and refuses a sold one once warmed from core', async () => {
+      await post([1]).expect(201);
+
+      const response = await post([2]).expect(409);
+
+      expect(response.body).toMatchObject({
+        error: {
+          code: 'SEATS_CONFLICT',
+          details: { conflicting_seat_ids: [2] },
+        },
+      });
+      expect(await holdKeys()).toEqual([`hold:${String(eventId)}:1`]);
+    });
+
+    it('answers 503 SOLD_STATE_UNAVAILABLE for a cold event while core is broken', async () => {
+      core.answer('broken');
+
+      const response = await post([1]).expect(503);
+
+      expect(response.body).toEqual({
+        error: {
+          code: 'SOLD_STATE_UNAVAILABLE',
+          message: expect.any(String) as string,
+        },
+      });
+      expect(await holdKeys()).toEqual([]);
+    });
+
+    it('holds a free seat of a loaded event while core is broken', async () => {
+      await redis.sadd(seatsKey(eventId), 1, 2, 3, 4, 5);
+      core.answer('broken');
+
+      await post([3]).expect(201);
+
+      expect(core.callCount).toBe(1);
+      expect(await redis.exists(`hold:${String(eventId)}:3`)).toBe(1);
+    });
+
+    it('calls every seat unknown for an event core does not know, without asking core again', async () => {
+      core.answer('missing');
+
+      const first = await post([1, 2]).expect(400);
+
+      expect(first.body).toMatchObject({
+        error: {
+          code: 'VALIDATION_FAILED',
+          details: { unknown_seat_ids: [1, 2] },
+        },
+      });
+
+      await post([3]).expect(400);
+
+      expect(core.callCount).toBe(1);
+      expect(await holdKeys()).toEqual([]);
+    });
   });
 
   describe('with core unreachable', () => {

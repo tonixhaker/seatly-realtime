@@ -653,6 +653,89 @@ describe('WebSocket gateway (e2e)', () => {
   });
 
   describe('a failed acquisition', () => {
+    const redisState = async () => ({
+      holds: (await redis.keys(`hold:${String(eventId)}:*`)).sort(),
+      expiries: (await redis.keys(`expiry:*:${String(eventId)}:*`)).sort(),
+      session: (await redis.smembers(sessionKey(mine))).sort(),
+    });
+
+    const refused = async (
+      seatIds: number[],
+      status: number,
+    ): Promise<Record<string, unknown>> => {
+      await hold(eventId, [20], mine);
+
+      const client = await connectClient();
+      await join(client, { event_id: eventId });
+      client.frames.length = 0;
+
+      const before = await redisState();
+
+      const response = await request(http())
+        .post('/holds')
+        .send({ event_id: eventId, seat_ids: seatIds, session_id: mine })
+        .expect(status);
+
+      await sleep(SETTLE_MS);
+
+      expect(await redisState()).toEqual(before);
+      expect(framesOf(client, 'seat.held')).toEqual([]);
+
+      return (response.body as { error: Record<string, unknown> }).error;
+    };
+
+    it('holds a free seat of the event and broadcasts it to the room', async () => {
+      await seedSold(eventId, [5]);
+      await knownSeats(redis, eventId);
+
+      const client = await connectClient();
+      await join(client, { event_id: eventId });
+
+      await request(http())
+        .post('/holds')
+        .send({ event_id: eventId, seat_ids: [4], session_id: mine })
+        .expect(201);
+
+      const frame = await waitForFrame(client, 'seat.held', 'a free seat');
+
+      expect(await redis.exists(holdKey(eventId, 4))).toBe(1);
+      expect(frame.payload).toEqual({ event_id: eventId, seat_ids: [4] });
+    });
+
+    it('refuses a sold seat with 409, writing and broadcasting nothing', async () => {
+      await seedSold(eventId, [5]);
+
+      const error = await refused([5], 409);
+
+      expect(error).toMatchObject({
+        code: 'SEATS_CONFLICT',
+        details: { conflicting_seat_ids: [5] },
+      });
+    });
+
+    it('names sold and held-elsewhere seats together in request order', async () => {
+      await seedSold(eventId, [5]);
+      await hold(eventId, [3], theirs);
+
+      const error = await refused([9, 5, 3], 409);
+
+      expect(error).toMatchObject({
+        code: 'SEATS_CONFLICT',
+        details: { conflicting_seat_ids: [5, 3] },
+      });
+    });
+
+    it('refuses seats of another event with 400 naming exactly those seats', async () => {
+      await seedSold(eventId, []);
+
+      const error = await refused([99, 4, 120], 400);
+
+      expect(error).toMatchObject({
+        code: 'VALIDATION_FAILED',
+        details: { unknown_seat_ids: [99, 120] },
+      });
+    });
+
     it('broadcasts nothing when every seat is already held elsewhere', async () => {
       await seedSold(eventId, []);
       await hold(eventId, [3, 7], theirs);

@@ -6,7 +6,12 @@ import {
 } from '../events/seat-events.service';
 import { ExpiryService } from './expiry.service';
 import { HoldStoreService } from '../holds/hold-store.service';
-import { expiryKey, parseExpiryKey, sessionMember } from '../redis/keys';
+import {
+  expiryKey,
+  parseExpiryKey,
+  seatsKey,
+  sessionMember,
+} from '../redis/keys';
 
 const EVENT = 42;
 const OTHER_EVENT = 43;
@@ -45,6 +50,8 @@ describe('ExpiryService', () => {
   beforeEach(async () => {
     redis = new RedisMock();
     await redis.flushall();
+    await redis.sadd(seatsKey(EVENT), 1, 2, 3);
+    await redis.sadd(seatsKey(OTHER_EVENT), 1, 2, 3);
     store = new HoldStoreService(redis);
     seatEvents = new SeatEventsService();
     released = [];

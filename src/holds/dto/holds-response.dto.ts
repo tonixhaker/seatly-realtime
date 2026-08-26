@@ -32,7 +32,8 @@ export class SeatsConflictDetailsDto {
   @ApiProperty({
     type: 'array',
     items: { type: 'integer' },
-    description: 'The requested seats already held by another session.',
+    description:
+      'The requested seats already held by another session or already sold, in request order.',
     example: [4, 7],
   })
   conflicting_seat_ids!: number[];
@@ -42,7 +43,9 @@ export class SeatsConflictErrorDto {
   @ApiProperty({ enum: ['SEATS_CONFLICT'], example: 'SEATS_CONFLICT' })
   code!: string;
 
-  @ApiProperty({ example: 'Some of the requested seats are already held.' })
+  @ApiProperty({
+    example: 'Some of the requested seats are already held or sold.',
+  })
   message!: string;
 
   @ApiProperty({ type: () => SeatsConflictDetailsDto })

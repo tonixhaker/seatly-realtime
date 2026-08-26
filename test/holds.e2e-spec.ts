@@ -5,7 +5,12 @@ import { App } from 'supertest/types';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { seatsKey, sessionMember, soldWarmKey } from '../src/redis/keys';
+import {
+  seatsKey,
+  sessionMember,
+  soldKey,
+  soldWarmKey,
+} from '../src/redis/keys';
 import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
@@ -119,6 +124,7 @@ describe('Holds REST surface (e2e)', () => {
       `session:${mine}`,
       `session:${theirs}`,
       seatsKey(eventId),
+      soldKey(eventId),
       soldWarmKey(eventId),
     );
   });
@@ -432,6 +438,40 @@ describe('Holds REST surface (e2e)', () => {
         'error.details.conflicting_seat_ids',
         [11],
       );
+    });
+
+    it('refuses a seat outside the event with 400 naming it in unknown_seat_ids', async () => {
+      const response = await request(http())
+        .post('/holds')
+        .send(body({ seat_ids: [99, 1, 51] }))
+        .expect(400);
+
+      expect(bodyOf(response)).toEqual({
+        error: {
+          code: 'VALIDATION_FAILED',
+          message: anyString,
+          details: { unknown_seat_ids: [99, 51] },
+        },
+      });
+      expect(await holdKeys()).toEqual([]);
+    });
+
+    it('refuses a sold seat with 409 SEATS_CONFLICT', async () => {
+      await redis.sadd(soldKey(eventId), 2);
+
+      const response = await request(http())
+        .post('/holds')
+        .send(body({ seat_ids: [1, 2] }))
+        .expect(409);
+
+      expect(bodyOf(response)).toEqual({
+        error: {
+          code: 'SEATS_CONFLICT',
+          message: anyString,
+          details: { conflicting_seat_ids: [2] },
+        },
+      });
+      expect(await holdKeys()).toEqual([]);
     });
 
     it('answers 201 when the same session re-posts seats it already holds', async () => {
