@@ -17,7 +17,7 @@ const BASE_EVENT_ID = 500000 + Math.floor(Math.random() * 90000);
 const buildApp = async (coreUrl: string): Promise<INestApplication<App>> => {
   const env = {
     PORT: '3000',
-    INTERNAL_TOKEN: 'e2e-internal-token',
+    INTERNAL_TOKEN: 'e2e-internal-token-at-least-32-chars',
     REDIS_HOST: process.env.REDIS_HOST as string,
     REDIS_PORT: process.env.REDIS_PORT as string,
     RABBITMQ_URL: process.env.RABBITMQ_URL as string,

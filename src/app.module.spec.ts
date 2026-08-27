@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing';
 
 const VALID_ENV = {
   PORT: '3000',
-  INTERNAL_TOKEN: 'local-internal-token',
+  INTERNAL_TOKEN: 'local-internal-token-at-least-32-chars',
   REDIS_HOST: '127.0.0.1',
   REDIS_PORT: '6379',
   RABBITMQ_URL: 'amqp://seatly:seatly@127.0.0.1:5672',
@@ -52,6 +52,12 @@ describe('AppModule environment validation', () => {
 
   it('refuses to start with an empty INTERNAL_TOKEN, naming the variable', async () => {
     process.env.INTERNAL_TOKEN = '';
+
+    await expect(startAppModule()).resolves.toContain('INTERNAL_TOKEN');
+  });
+
+  it('refuses to start with a 31-character INTERNAL_TOKEN, naming the variable', async () => {
+    process.env.INTERNAL_TOKEN = 'a'.repeat(31);
 
     await expect(startAppModule()).resolves.toContain('INTERNAL_TOKEN');
   });

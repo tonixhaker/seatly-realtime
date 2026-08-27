@@ -27,7 +27,7 @@ import {
 import { knownSeats } from './support/known-seats';
 
 const SESSION_ID = '0b5f9d6e-3b4a-4c2d-8e1f-7a6b5c4d3e2f';
-const INTERNAL_TOKEN = 'e2e-internal-token';
+const INTERNAL_TOKEN = 'e2e-internal-token-at-least-32-chars';
 const INTERNAL_HEADER = 'X-Internal-Token';
 const BASE_EVENT_ID = 700000 + Math.floor(Math.random() * 90000);
 

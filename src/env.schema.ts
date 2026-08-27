@@ -31,7 +31,7 @@ export const envSchema = z
   .object({
     PORT: port().default(3000),
     INTERNAL_PORT: port().default(3001),
-    INTERNAL_TOKEN: z.string().min(1),
+    INTERNAL_TOKEN: z.string().min(32),
     REDIS_HOST: z.string().min(1),
     REDIS_PORT: port(),
     RABBITMQ_URL: z.string().min(1),

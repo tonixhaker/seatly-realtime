@@ -124,7 +124,7 @@ jobs:
       - name: Start the container
         run: |
           docker run -d --name seatly-realtime-ci --network seatly-ci -p 3000:3000 \
-            -e PORT=3000 -e INTERNAL_TOKEN=ci-internal-token \
+            -e PORT=3000 -e INTERNAL_TOKEN=ci-internal-token-at-least-32-chars \
             -e REDIS_HOST=seatly-redis-ci -e REDIS_PORT=6379 \
             -e RABBITMQ_URL=amqp://seatly:seatly@seatly-rabbitmq-ci:5672 \
             -e CORE_API_URL=http://127.0.0.1:8000 \
