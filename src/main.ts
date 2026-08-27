@@ -7,6 +7,7 @@ import { AppModule } from './app.module';
 import { applyCors } from './cors';
 import { EnvConfig } from './env.schema';
 import { HttpExceptionFilter } from './http-exception.filter';
+import { listen } from './listen';
 import { buildOpenApiDocument } from './swagger';
 
 async function bootstrap() {
@@ -24,6 +25,6 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
   SwaggerModule.setup('docs', app, buildOpenApiDocument(app));
   app.enableShutdownHooks([], { useProcessExit: true });
-  await app.listen(config.get('PORT'));
+  await listen(app, config.get('PORT'), config.get('INTERNAL_PORT'));
 }
 void bootstrap();

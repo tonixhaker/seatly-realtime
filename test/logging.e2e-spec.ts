@@ -5,9 +5,13 @@ import Redis from 'ioredis';
 import { Logger } from 'nestjs-pino';
 import request from 'supertest';
 import { App } from 'supertest/types';
+import { Server } from 'node:http';
+import { ConfigService } from '@nestjs/config';
 import { AppModule } from '../src/app.module';
 import { CONSUMER_TOPOLOGY } from '../src/consumer/topology';
+import { EnvConfig } from '../src/env.schema';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
+import { listen } from '../src/listen';
 import { seatsKey, soldWarmKey } from '../src/redis/keys';
 import {
   deleteTopology,
@@ -30,6 +34,7 @@ const topology = throwawayTopology('logging');
 
 describe('Structured logging and request id (e2e)', () => {
   let app: INestApplication<App>;
+  let internal: Server;
   const captured: string[] = [];
   let stdout: jest.SpiedFunction<typeof process.stdout.write>;
 
@@ -65,7 +70,7 @@ describe('Structured logging and request id (e2e)', () => {
       );
 
   const validate = (sessionId: string = randomUUID()) =>
-    request(http())
+    request(internal)
       .get(
         `/internal/holds/validate?event_id=1&seat_ids=1&session_id=${sessionId}`,
       )
@@ -96,7 +101,11 @@ describe('Structured logging and request id (e2e)', () => {
       }),
     );
     app.useGlobalFilters(new HttpExceptionFilter());
-    await app.init();
+    internal = await listen(
+      app,
+      0,
+      app.get(ConfigService<EnvConfig, true>).get('INTERNAL_PORT'),
+    );
   });
 
   afterAll(async () => {

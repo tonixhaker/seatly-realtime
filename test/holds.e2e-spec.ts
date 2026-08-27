@@ -2,6 +2,8 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import request, { Response } from 'supertest';
 import { App } from 'supertest/types';
+import { Server } from 'node:http';
+import { ConfigService } from '@nestjs/config';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -13,7 +15,9 @@ import {
 } from '../src/redis/keys';
 import Redis from 'ioredis';
 import { AppModule } from '../src/app.module';
+import { EnvConfig } from '../src/env.schema';
 import { HttpExceptionFilter } from '../src/http-exception.filter';
+import { listen } from '../src/listen';
 import { buildOpenApiDocument } from '../src/swagger';
 import { CONSUMER_TOPOLOGY } from '../src/consumer/topology';
 import {
@@ -55,6 +59,7 @@ const containsKey = (value: unknown, key: string): boolean => {
 
 describe('Holds REST surface (e2e)', () => {
   let app: INestApplication<App>;
+  let internal: Server;
   let redis: Redis;
   let eventId: number;
   let mine: string;
@@ -97,7 +102,11 @@ describe('Holds REST surface (e2e)', () => {
       }),
     );
     app.useGlobalFilters(new HttpExceptionFilter());
-    await app.init();
+    internal = await listen(
+      app,
+      0,
+      app.get(ConfigService<EnvConfig, true>).get('INTERNAL_PORT'),
+    );
 
     redis = new Redis({
       host: process.env.REDIS_HOST,
@@ -140,11 +149,55 @@ describe('Holds REST surface (e2e)', () => {
     await deleteTopology(topology);
   });
 
+  describe('internal port', () => {
+    const validateQuery = () =>
+      `/internal/holds/validate?event_id=${eventId}&seat_ids=1&session_id=${mine}`;
+
+    it('answers validate with the correct token on INTERNAL_PORT', async () => {
+      await hold([1], mine);
+
+      const response = await request(internal)
+        .get(validateQuery())
+        .set(INTERNAL_HEADER, INTERNAL_TOKEN)
+        .expect(200);
+
+      expect(bodyOf(response)).toEqual({ valid: true, missing: [] });
+    });
+
+    it('answers validate with 404 on PORT even with the correct token', async () => {
+      await hold([1], mine);
+
+      const response = await request(http())
+        .get(validateQuery())
+        .set(INTERNAL_HEADER, INTERNAL_TOKEN)
+        .expect(404);
+
+      expect(bodyOf(response)).toEqual({
+        error: { code: 'NOT_FOUND', message: 'Resource not found.' },
+      });
+    });
+
+    it('answers 404 rather than 401 on PORT without a token', async () => {
+      const response = await request(http()).get(validateQuery()).expect(404);
+
+      expect(bodyOf(response)).toEqual({
+        error: { code: 'NOT_FOUND', message: 'Resource not found.' },
+      });
+    });
+
+    it('serves the socket.io handshake on PORT only', async () => {
+      const handshake = '/socket.io/?EIO=4&transport=polling';
+
+      await request(http()).get(handshake).expect(200);
+      await request(internal).get(handshake).expect(404);
+    });
+  });
+
   describe('GET /internal/holds/validate authorization', () => {
     const query = `event_id=1&seat_ids=1&session_id=${SESSION_ID}`;
 
     it('rejects a request carrying no X-Internal-Token header with 401', async () => {
-      const response = await request(http())
+      const response = await request(internal)
         .get(`/internal/holds/validate?${query}`)
         .expect(401);
 
@@ -154,7 +207,7 @@ describe('Holds REST surface (e2e)', () => {
     });
 
     it('rejects a request carrying a wrong X-Internal-Token with 401', async () => {
-      const response = await request(http())
+      const response = await request(internal)
         .get(`/internal/holds/validate?${query}`)
         .set(INTERNAL_HEADER, 'not-the-token')
         .expect(401);
@@ -165,7 +218,7 @@ describe('Holds REST surface (e2e)', () => {
     });
 
     it('omits the details key entirely from the 401 envelope', async () => {
-      const response = await request(http())
+      const response = await request(internal)
         .get(`/internal/holds/validate?${query}`)
         .expect(401);
 
@@ -175,7 +228,7 @@ describe('Holds REST surface (e2e)', () => {
     it('fails closed with 401 when INTERNAL_TOKEN is unset in the environment', async () => {
       delete process.env.INTERNAL_TOKEN;
 
-      const response = await request(http())
+      const response = await request(internal)
         .get(`/internal/holds/validate?${query}`)
         .set(INTERNAL_HEADER, INTERNAL_TOKEN)
         .expect(401);
@@ -188,7 +241,7 @@ describe('Holds REST surface (e2e)', () => {
     it('fails closed with 401 when INTERNAL_TOKEN is an empty string', async () => {
       process.env.INTERNAL_TOKEN = '';
 
-      const response = await request(http())
+      const response = await request(internal)
         .get(`/internal/holds/validate?${query}`)
         .set(INTERNAL_HEADER, '')
         .expect(401);
@@ -199,7 +252,7 @@ describe('Holds REST surface (e2e)', () => {
     });
 
     it('rejects an unauthenticated request with 401 before validating its query', async () => {
-      const response = await request(http())
+      const response = await request(internal)
         .get('/internal/holds/validate?nonsense=1')
         .expect(401);
 
@@ -211,7 +264,7 @@ describe('Holds REST surface (e2e)', () => {
 
   describe('GET /internal/holds/validate', () => {
     const authorized = (query: string) =>
-      request(http())
+      request(internal)
         .get(`/internal/holds/validate?${query}`)
         .set(INTERNAL_HEADER, INTERNAL_TOKEN);
 
@@ -502,7 +555,7 @@ describe('Holds REST surface (e2e)', () => {
         seatIds.map((seatId) => sessionMember(eventId, seatId)).sort(),
       );
 
-      const response = await request(http())
+      const response = await request(internal)
         .get('/internal/holds/validate')
         .query({ event_id: eventId, seat_ids: seatIds, session_id: mine })
         .set(INTERNAL_HEADER, INTERNAL_TOKEN)
@@ -821,7 +874,7 @@ describe('Holds REST surface (e2e)', () => {
     it.each([...NON_INTEGER_IDS, UNSAFE_ID, 'abc'])(
       'rejects the seat id %s in the validate query with 400',
       async (id) => {
-        const response = await request(http())
+        const response = await request(internal)
           .get('/internal/holds/validate')
           .set(INTERNAL_HEADER, INTERNAL_TOKEN)
           .query({ event_id: 1, seat_ids: id, session_id: SESSION_ID })
@@ -836,7 +889,7 @@ describe('Holds REST surface (e2e)', () => {
     it.each(['0x10', '1e3', '0', ''])(
       'rejects the event_id %s in the validate query with 400',
       async (id) => {
-        const response = await request(http())
+        const response = await request(internal)
           .get('/internal/holds/validate')
           .set(INTERNAL_HEADER, INTERNAL_TOKEN)
           .query({ event_id: id, seat_ids: 1, session_id: SESSION_ID })

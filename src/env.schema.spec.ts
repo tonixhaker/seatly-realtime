@@ -20,6 +20,7 @@ describe('validateEnv', () => {
   it('accepts a complete environment and coerces the numeric variables', () => {
     expect(validateEnv(COMPLETE)).toEqual({
       PORT: 3000,
+      INTERNAL_PORT: 3001,
       INTERNAL_TOKEN: 'local-internal-token',
       REDIS_HOST: 'redis',
       REDIS_PORT: 6379,
@@ -42,6 +43,23 @@ describe('validateEnv', () => {
 
   it('defaults PORT to 3000 rather than demanding it', () => {
     expect(validateEnv(without('PORT')).PORT).toBe(3000);
+  });
+
+  it('defaults INTERNAL_PORT to 3001 rather than demanding it', () => {
+    expect(validateEnv(COMPLETE).INTERNAL_PORT).toBe(3001);
+  });
+
+  it('refuses an INTERNAL_PORT equal to PORT and says why', () => {
+    const clash = { ...COMPLETE, PORT: '4000', INTERNAL_PORT: '4000' };
+
+    expect(() => validateEnv(clash)).toThrow('INTERNAL_PORT');
+    expect(() => validateEnv(clash)).toThrow('must differ from PORT');
+  });
+
+  it('refuses an INTERNAL_PORT that collides with the default PORT', () => {
+    expect(() =>
+      validateEnv({ ...without('PORT'), INTERNAL_PORT: '3000' }),
+    ).toThrow('must differ from PORT');
   });
 
   it('rejects an empty INTERNAL_TOKEN, which would disable the internal guard', () => {

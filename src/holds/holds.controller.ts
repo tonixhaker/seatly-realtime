@@ -18,6 +18,7 @@ import { HoldSeatsDto } from './dto/hold-seats.dto';
 import { ValidateHoldsQueryDto } from './dto/validate-holds-query.dto';
 import { LiveSeatsParamsDto } from './dto/live-seats-params.dto';
 import { LiveSeatsDto, ValidateHoldsDto } from './dto/holds-response.dto';
+import { InternalPortGuard } from './internal-port.guard';
 import { InternalTokenGuard } from './internal-token.guard';
 import {
   ApiCreateHold,
@@ -56,7 +57,7 @@ export class HoldsController {
   }
 
   @ApiValidateHolds()
-  @UseGuards(InternalTokenGuard)
+  @UseGuards(InternalPortGuard, InternalTokenGuard)
   @Get('internal/holds/validate')
   validate(@Query() query: ValidateHoldsQueryDto): Promise<ValidateHoldsDto> {
     return this.holds.validate(query);
