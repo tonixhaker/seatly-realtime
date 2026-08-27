@@ -27,15 +27,21 @@ const origins = () =>
         .min(1),
     );
 
-export const envSchema = z.object({
-  PORT: port().default(3000),
-  INTERNAL_TOKEN: z.string().min(1),
-  REDIS_HOST: z.string().min(1),
-  REDIS_PORT: port(),
-  RABBITMQ_URL: z.string().min(1),
-  CORE_API_URL: z.url({ protocol: /^https?$/ }),
-  WEB_ORIGIN: origins(),
-});
+export const envSchema = z
+  .object({
+    PORT: port().default(3000),
+    INTERNAL_PORT: port().default(3001),
+    INTERNAL_TOKEN: z.string().min(1),
+    REDIS_HOST: z.string().min(1),
+    REDIS_PORT: port(),
+    RABBITMQ_URL: z.string().min(1),
+    CORE_API_URL: z.url({ protocol: /^https?$/ }),
+    WEB_ORIGIN: origins(),
+  })
+  .refine((env) => env.INTERNAL_PORT !== env.PORT, {
+    message: 'must differ from PORT',
+    path: ['INTERNAL_PORT'],
+  });
 
 export type EnvConfig = z.infer<typeof envSchema>;
 

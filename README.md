@@ -55,14 +55,15 @@ cp .env.example .env
 pnpm start:dev
 ```
 
-Serves on `http://localhost:3000`. Configuration is validated against a zod schema at
+Serves on `http://localhost:3000`, and `/internal/*` on `http://localhost:3001` only. Configuration is validated against a zod schema at
 startup, so a missing or malformed variable stops the process with a message naming it
 rather than failing on first use. `.env` is required by every entry point that boots the
 application, including `pnpm openapi`.
 
 | Variable | Required | Consumed by |
 |---|---|---|
-| `PORT` | defaults to `3000` | the HTTP server |
+| `PORT` | defaults to `3000` | the HTTP server and the socket.io endpoint |
+| `INTERNAL_PORT` | defaults to `3001` | a second listener that alone answers `/internal/*`, which is 404 on `PORT`; must differ from `PORT`, and is never published |
 | `INTERNAL_TOKEN` | yes | the `X-Internal-Token` guard on `/internal/*`; must equal `seatly-api`'s `INTERNAL_TOKEN` |
 | `REDIS_HOST` | yes | hold storage and expiry, and the readiness probe |
 | `REDIS_PORT` | yes | as above |
@@ -82,6 +83,9 @@ docker run -d -p 3000:3000 \
   -e WEB_ORIGIN=http://localhost:5173 \
   seatly-realtime
 ```
+
+`3001` is deliberately not published: only services on the same network should reach
+`/internal/*`.
 
 The image builds from this repository alone, runs Node 22 as the unprivileged `node` user,
 and carries no development dependency and no `.env` — every variable is supplied at run
