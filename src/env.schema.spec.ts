@@ -2,7 +2,7 @@ import { validateEnv } from './env.schema';
 
 const COMPLETE = {
   PORT: '3000',
-  INTERNAL_TOKEN: 'local-internal-token',
+  INTERNAL_TOKEN: 'local-internal-token-at-least-32-chars',
   REDIS_HOST: 'redis',
   REDIS_PORT: '6379',
   RABBITMQ_URL: 'amqp://seatly:seatly@rabbitmq:5672',
@@ -21,7 +21,7 @@ describe('validateEnv', () => {
     expect(validateEnv(COMPLETE)).toEqual({
       PORT: 3000,
       INTERNAL_PORT: 3001,
-      INTERNAL_TOKEN: 'local-internal-token',
+      INTERNAL_TOKEN: 'local-internal-token-at-least-32-chars',
       REDIS_HOST: 'redis',
       REDIS_PORT: 6379,
       RABBITMQ_URL: 'amqp://seatly:seatly@rabbitmq:5672',
@@ -66,6 +66,26 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...COMPLETE, INTERNAL_TOKEN: '' })).toThrow(
       'INTERNAL_TOKEN',
     );
+  });
+
+  it('accepts an INTERNAL_TOKEN of exactly 32 characters', () => {
+    const token = 'a'.repeat(32);
+
+    expect(
+      validateEnv({ ...COMPLETE, INTERNAL_TOKEN: token }).INTERNAL_TOKEN,
+    ).toBe(token);
+  });
+
+  it('rejects an INTERNAL_TOKEN of 31 characters, which is too short to be a secret', () => {
+    expect(() =>
+      validateEnv({ ...COMPLETE, INTERNAL_TOKEN: 'a'.repeat(31) }),
+    ).toThrow('INTERNAL_TOKEN');
+  });
+
+  it('rejects the old published development token', () => {
+    expect(() =>
+      validateEnv({ ...COMPLETE, INTERNAL_TOKEN: 'local-internal-token' }),
+    ).toThrow('INTERNAL_TOKEN');
   });
 
   it('rejects a non-numeric REDIS_PORT instead of coercing it to NaN', () => {

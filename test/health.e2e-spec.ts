@@ -19,7 +19,7 @@ const CLOSED_AMQP_URL = 'amqp://seatly:seatly@127.0.0.1:59322';
 
 const liveEnv = (): Record<string, string> => ({
   PORT: '3000',
-  INTERNAL_TOKEN: 'e2e-internal-token',
+  INTERNAL_TOKEN: 'e2e-internal-token-at-least-32-chars',
   REDIS_HOST: process.env.REDIS_HOST as string,
   REDIS_PORT: process.env.REDIS_PORT as string,
   RABBITMQ_URL: process.env.RABBITMQ_URL as string,

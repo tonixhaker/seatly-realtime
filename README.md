@@ -64,7 +64,7 @@ application, including `pnpm openapi`.
 |---|---|---|
 | `PORT` | defaults to `3000` | the HTTP server and the socket.io endpoint |
 | `INTERNAL_PORT` | defaults to `3001` | a second listener that alone answers `/internal/*`, which is 404 on `PORT`; must differ from `PORT`, and is never published |
-| `INTERNAL_TOKEN` | yes | the `X-Internal-Token` guard on `/internal/*`; must equal `seatly-api`'s `INTERNAL_TOKEN` |
+| `INTERNAL_TOKEN` | yes, at least 32 characters | the `X-Internal-Token` guard on `/internal/*`; must equal `seatly-api`'s `INTERNAL_TOKEN`. `openssl rand -hex 32` makes one |
 | `REDIS_HOST` | yes | hold storage and expiry, and the readiness probe |
 | `REDIS_PORT` | yes | as above |
 | `RABBITMQ_URL` | yes | the domain-event consumer, and the readiness probe |
@@ -76,7 +76,7 @@ application, including `pnpm openapi`.
 ```bash
 docker build -t seatly-realtime .
 docker run -d -p 3000:3000 \
-  -e INTERNAL_TOKEN=local-internal-token \
+  -e INTERNAL_TOKEN=$(openssl rand -hex 32) \
   -e REDIS_HOST=host.docker.internal -e REDIS_PORT=6379 \
   -e RABBITMQ_URL=amqp://seatly:seatly@host.docker.internal:5672 \
   -e CORE_API_URL=http://host.docker.internal:8000 \
