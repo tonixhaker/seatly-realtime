@@ -69,6 +69,8 @@ jobs:
         run: pnpm test:e2e
 
       - name: Regenerate the OpenAPI contract and require the file to be rewritten
+        env:
+          INTERNAL_TOKEN: ci-internal-token-at-least-32-chars
         run: |
           stamp='process.stdout.write(String(require("fs").statSync("docs/openapi.json").mtimeMs))'
           before=$(node -e "$stamp")
