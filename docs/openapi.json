@@ -1,0 +1,426 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/holds": {
+      "post": {
+        "description": "Acquisition is all or nothing. A partial conflict releases everything the request took before responding.",
+        "operationId": "HoldsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HoldSeatsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Every requested seat is held by this session."
+          },
+          "400": {
+            "description": "VALIDATION_FAILED — malformed, unknown or invalid fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "SEATS_CONFLICT — at least one seat is already held by another session.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SeatsConflictResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Hold seats for a session",
+        "tags": [
+          "holds"
+        ]
+      },
+      "delete": {
+        "description": "Idempotent. Seats held by another session are silently not released rather than erroring.",
+        "operationId": "HoldsController_release",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HoldSeatsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Release processed."
+          },
+          "400": {
+            "description": "VALIDATION_FAILED — malformed, unknown or invalid fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Release seats held by a session",
+        "tags": [
+          "holds"
+        ]
+      }
+    },
+    "/events/{id}/live-seats": {
+      "get": {
+        "description": "The initial snapshot the web client applies before any WebSocket delta arrives.",
+        "operationId": "HoldsController_liveSeats",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "minimum": 1,
+              "example": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveSeatsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED — malformed, unknown or invalid fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Read the live held and sold seats of an event",
+        "tags": [
+          "holds"
+        ]
+      }
+    },
+    "/internal/holds/validate": {
+      "get": {
+        "description": "Docker network only. Requires the X-Internal-Token header. Not callable from a browser. Called by seatly-api at checkout.",
+        "operationId": "HoldsController_validate",
+        "parameters": [
+          {
+            "name": "event_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "example": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "seat_ids",
+            "required": true,
+            "in": "query",
+            "description": "Repeat the parameter once per seat: seat_ids=4&seat_ids=7.",
+            "schema": {
+              "minItems": 1,
+              "maxItems": 50,
+              "uniqueItems": true,
+              "example": [
+                4,
+                7
+              ],
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          {
+            "name": "session_id",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "format": "uuid",
+              "example": "0b5f9d6e-3b4a-4c2d-8e1f-7a6b5c4d3e2f",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValidateHoldsDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED — malformed, unknown or invalid fields.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "UNAUTHENTICATED — missing or wrong X-Internal-Token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "internal-token": []
+          }
+        ],
+        "summary": "INTERNAL — check that a session holds every requested seat",
+        "tags": [
+          "holds",
+          "internal"
+        ],
+        "x-internal": true
+      }
+    }
+  },
+  "info": {
+    "title": "Seatly Realtime",
+    "description": "Seat holds and live seat state",
+    "version": "1.0.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "holds",
+      "description": "Public seat hold and live seat state routes."
+    },
+    {
+      "name": "internal",
+      "description": "Reachable on the docker network only and requires the X-Internal-Token header. Never call these from a browser."
+    }
+  ],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "internal-token": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Internal-Token"
+      }
+    },
+    "schemas": {
+      "HoldSeatsDto": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "integer",
+            "minimum": 1,
+            "example": 1
+          },
+          "seat_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "minItems": 1,
+            "maxItems": 50,
+            "uniqueItems": true,
+            "example": [
+              1,
+              2
+            ]
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Issued by the web client. Guests have one too.",
+            "example": "0b5f9d6e-3b4a-4c2d-8e1f-7a6b5c4d3e2f"
+          }
+        },
+        "required": [
+          "event_id",
+          "seat_ids",
+          "session_id"
+        ]
+      },
+      "ErrorBodyDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "Stable SCREAMING_SNAKE_CASE identity of the failure. Clients branch on this, never on message.",
+            "example": "VALIDATION_FAILED"
+          },
+          "message": {
+            "type": "string",
+            "description": "One human-readable English sentence, safe to show a user.",
+            "example": "Request validation failed."
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Per-code payload. Omitted entirely when empty."
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "ErrorResponseDto": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorBodyDto"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "SeatsConflictDetailsDto": {
+        "type": "object",
+        "properties": {
+          "conflicting_seat_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "The requested seats already held by another session.",
+            "example": [
+              4,
+              7
+            ]
+          }
+        },
+        "required": [
+          "conflicting_seat_ids"
+        ]
+      },
+      "SeatsConflictErrorDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "SEATS_CONFLICT"
+            ],
+            "example": "SEATS_CONFLICT"
+          },
+          "message": {
+            "type": "string",
+            "example": "Some of the requested seats are already held."
+          },
+          "details": {
+            "$ref": "#/components/schemas/SeatsConflictDetailsDto"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
+        ]
+      },
+      "SeatsConflictResponseDto": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/SeatsConflictErrorDto"
+          }
+        },
+        "required": [
+          "error"
+        ]
+      },
+      "LiveSeatsDto": {
+        "type": "object",
+        "properties": {
+          "held": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "example": [
+              5,
+              9
+            ]
+          },
+          "sold": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "example": [
+              3,
+              7,
+              11
+            ]
+          }
+        },
+        "required": [
+          "held",
+          "sold"
+        ]
+      },
+      "ValidateHoldsDto": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "description": "True only when the session holds every requested seat.",
+            "example": false
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "The requested seats this session does not hold.",
+            "example": [
+              7
+            ]
+          }
+        },
+        "required": [
+          "valid",
+          "missing"
+        ]
+      }
+    }
+  }
+}
