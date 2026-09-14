@@ -19,7 +19,7 @@ REST — `POST /holds`, `DELETE /holds`, `GET /events/{id}/live-seats`, and
 `GET /internal/holds/validate` on the internal network. OpenAPI via `@nestjs/swagger`.
 
 WebSocket — namespace `/events`, emitting `snapshot`, `seat.held`, `seat.released` and
-`seat.sold`.
+`seat.sold`. The protocol is specified in [`docs/websocket.md`](docs/websocket.md).
 
 ## Running it
 
