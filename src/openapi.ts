@@ -5,7 +5,7 @@ import { AppModule } from './app.module';
 import { buildOpenApiDocument } from './swagger';
 
 async function generate(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { logger: false });
+  const app = await NestFactory.create(AppModule, { logger: ['error'] });
   await app.init();
   const target = join(__dirname, '..', 'docs', 'openapi.json');
   mkdirSync(dirname(target), { recursive: true });
