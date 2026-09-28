@@ -1,0 +1,250 @@
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import { randomUUID } from 'node:crypto';
+import Redis from 'ioredis';
+import { Logger } from 'nestjs-pino';
+import request from 'supertest';
+import { App } from 'supertest/types';
+import { Server } from 'node:http';
+import { ConfigService } from '@nestjs/config';
+import { AppModule } from '../src/app.module';
+import { CONSUMER_TOPOLOGY } from '../src/consumer/topology';
+import { EnvConfig } from '../src/env.schema';
+import { HttpExceptionFilter } from '../src/http-exception.filter';
+import { listen } from '../src/listen';
+import { seatsKey, soldWarmKey } from '../src/redis/keys';
+import {
+  deleteTopology,
+  throwawayTopology,
+} from './support/throwaway-topology';
+import { knownSeats } from './support/known-seats';
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+interface LogLine {
+  level: number;
+  msg: string;
+  request_id?: string;
+  context?: string;
+  res?: { statusCode: number };
+  req?: { method: string; url: string };
+}
+
+const topology = throwawayTopology('logging');
+
+describe('Structured logging and request id (e2e)', () => {
+  let app: INestApplication<App>;
+  let internal: Server;
+  const captured: string[] = [];
+  let stdout: jest.SpiedFunction<typeof process.stdout.write>;
+
+  const http = (): App => app.getHttpServer();
+
+  const lines = (): LogLine[] =>
+    captured
+      .join('')
+      .split('\n')
+      .filter((line) => line !== '')
+      .map((line) => JSON.parse(line) as LogLine);
+
+  const completed = async (id: string): Promise<LogLine> => {
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const line = lines().find(
+        (entry) => entry.request_id === id && entry.msg === 'request completed',
+      );
+      if (line !== undefined) {
+        return line;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    throw new Error(`no request completed line for ${id}`);
+  };
+
+  const rawLinesOf = (id: string): string[] =>
+    captured
+      .join('')
+      .split('\n')
+      .filter(
+        (line) =>
+          line !== '' && (JSON.parse(line) as LogLine).request_id === id,
+      );
+
+  const validate = (sessionId: string = randomUUID()) =>
+    request(internal)
+      .get(
+        `/internal/holds/validate?event_id=1&seat_ids=1&session_id=${sessionId}`,
+      )
+      .set('X-Internal-Token', process.env.INTERNAL_TOKEN as string);
+
+  beforeAll(async () => {
+    stdout = jest
+      .spyOn(process.stdout, 'write')
+      .mockImplementation((chunk: string | Uint8Array) => {
+        captured.push(String(chunk));
+        return true;
+      });
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    })
+      .overrideProvider(CONSUMER_TOPOLOGY)
+      .useValue(topology)
+      .compile();
+
+    app = moduleRef.createNestApplication({ bufferLogs: true });
+    app.useLogger(app.get(Logger));
+    app.useGlobalPipes(
+      new ValidationPipe({
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        transform: true,
+      }),
+    );
+    app.useGlobalFilters(new HttpExceptionFilter());
+    internal = await listen(
+      app,
+      0,
+      app.get(ConfigService<EnvConfig, true>).get('INTERNAL_PORT'),
+    );
+  });
+
+  afterAll(async () => {
+    await app.close();
+    stdout.mockRestore();
+    await deleteTopology(topology);
+  });
+
+  it('echoes a valid X-Request-Id on POST /holds and logs it as request_id', async () => {
+    const id = randomUUID();
+    const redis = app.get(Redis);
+    const eventId = 900000 + Math.floor(Math.random() * 90000);
+    const body = {
+      event_id: eventId,
+      seat_ids: [1],
+      session_id: randomUUID(),
+    };
+
+    await knownSeats(redis, eventId);
+
+    const response = await request(http())
+      .post('/holds')
+      .set('X-Request-Id', id)
+      .send(body)
+      .expect(201);
+
+    expect(response.headers['x-request-id']).toBe(id);
+    expect((await completed(id)).res).toEqual({ statusCode: 201 });
+
+    await request(http()).delete('/holds').send(body).expect(204);
+    await redis.del(seatsKey(eventId), soldWarmKey(eventId));
+  });
+
+  it('logs the id core forwards to GET /internal/holds/validate', async () => {
+    const id = randomUUID();
+
+    const response = await validate().set('X-Request-Id', id).expect(200);
+
+    expect(response.headers['x-request-id']).toBe(id);
+    expect((await completed(id)).res).toEqual({ statusCode: 200 });
+  });
+
+  it('carries request_id on the HttpExceptionFilter warn for a 4xx', async () => {
+    const id = randomUUID();
+
+    await request(http())
+      .post('/holds')
+      .set('X-Request-Id', id)
+      .send({})
+      .expect(400);
+    await completed(id);
+
+    expect(lines()).toContainEqual(
+      expect.objectContaining({
+        context: 'HttpExceptionFilter',
+        level: 40,
+        request_id: id,
+      }),
+    );
+  });
+
+  it('logs the validate path without its query string', async () => {
+    const id = randomUUID();
+    const sid = randomUUID();
+
+    await validate(sid).set('X-Request-Id', id).expect(200);
+    const line = await completed(id);
+
+    expect(line.request_id).toBe(id);
+    expect(line.req).toEqual({
+      method: 'GET',
+      url: '/internal/holds/validate',
+    });
+    expect(captured.join('')).not.toContain(sid);
+    expect(rawLinesOf(id).length).toBeGreaterThan(0);
+    rawLinesOf(id).forEach((raw) => expect(raw).not.toContain('?'));
+  });
+
+  it('logs the filter warn for a 4xx with the path only', async () => {
+    const id = randomUUID();
+    const sid = randomUUID();
+
+    await validate(`${sid}x`).set('X-Request-Id', id).expect(400);
+    await completed(id);
+
+    expect(lines()).toContainEqual(
+      expect.objectContaining({
+        context: 'HttpExceptionFilter',
+        level: 40,
+        request_id: id,
+        msg: 'GET /internal/holds/validate 400 VALIDATION_FAILED',
+      }),
+    );
+    expect(captured.join('')).not.toContain(sid);
+    rawLinesOf(id).forEach((raw) => expect(raw).not.toContain('?'));
+  });
+
+  it('generates an id when the header is missing', async () => {
+    const response = await validate().expect(200);
+    const generated = response.headers['x-request-id'];
+
+    expect(generated).toMatch(UUID);
+    await completed(generated);
+  });
+
+  it.each([
+    ['a non-uuid', 'not-a-uuid'],
+    ['a 5000-character value', 'a'.repeat(5000)],
+  ])(
+    'replaces %s with a generated id and never logs it',
+    async (_label, supplied) => {
+      const response = await validate()
+        .set('X-Request-Id', supplied)
+        .expect(200);
+      const generated = response.headers['x-request-id'];
+
+      expect(generated).toMatch(UUID);
+      expect(generated).not.toBe(supplied);
+      await completed(generated);
+      expect(captured.join('')).not.toContain(supplied);
+    },
+  );
+
+  it('echoes the id on health probes without logging their completion', async () => {
+    const probe = randomUUID();
+    const after = randomUUID();
+
+    const response = await request(http())
+      .get('/health/live')
+      .set('X-Request-Id', probe)
+      .expect(200);
+    await validate().set('X-Request-Id', after).expect(200);
+    await completed(after);
+
+    expect(response.headers['x-request-id']).toBe(probe);
+    expect(lines().some((entry) => entry.request_id === probe)).toBe(false);
+  });
+
+  it('writes nothing but JSON lines to stdout', () => {
+    expect(lines().length).toBeGreaterThan(0);
+  });
+});

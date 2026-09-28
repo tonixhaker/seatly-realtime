@@ -1,0 +1,40 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://schemas.seatly.dev/events/envelope.json",
+    "title": "Seatly event envelope",
+    "type": "object",
+    "properties": {
+        "event_id": {
+            "type": "string",
+            "format": "uuid"
+        },
+        "event_type": {
+            "type": "string",
+            "enum": [
+                "event.published",
+                "order.paid",
+                "order.payment_failed",
+                "tickets.issued"
+            ]
+        },
+        "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "version": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "payload": {
+            "type": "object"
+        }
+    },
+    "required": [
+        "event_id",
+        "event_type",
+        "occurred_at",
+        "version",
+        "payload"
+    ],
+    "additionalProperties": false
+}
